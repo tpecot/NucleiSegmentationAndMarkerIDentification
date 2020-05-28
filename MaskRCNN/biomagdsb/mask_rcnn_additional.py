@@ -5,6 +5,8 @@ import skimage.color
 import numpy
 import os.path
 import image_augmentation
+import imgaug
+from imgaug.augmentables.segmaps import SegmentationMapsOnImage
 
 class NucleiConfig(mrcnn_config.Config):
     NAME = "nuclei"
@@ -40,8 +42,11 @@ class NucleiDataset(mrcnn_utils.Dataset):
 
             #adding augmentation parameters
             for augment in range(pAugmentationLevel):
-                augmentationMap = image_augmentation.GenerateRandomAugmentationMap(pSeed=imageIndex)
-                width, height = image_augmentation.CalculateAugmentedSize(image, augmentationMap)
+                augmentationMap, widthFactor, heightFactor, switchWidthHeight = image_augmentation.GenerateRandomImgaugAugmentation()
+                width = int(float(image.shape[1])*widthFactor)
+                height = int(float(image.shape[0])*heightFactor)
+                if switchWidthHeight:
+                    width, height = height, width
                 self.add_image(source="nuclei", image_id=imageIndex, path=imageFile, name=baseName, width=width, height=height, mask_path=maskFile, augmentation_params=augmentationMap)
                 imageIndex += 1
 
@@ -64,24 +69,31 @@ class NucleiDataset(mrcnn_utils.Dataset):
 
         image = skimage.io.imread(imagePath)
         image = kutils.RCNNConvertInputImage(image)
-
+        
         if augmentation is not None:
-            image = image_augmentation.Augment(pImage=image, pAugmentationMap=augmentation, pIsMask=False)
+            image = augmentation(image = image)
 
         return image
 
     def load_mask(self, image_id):
         info = self.image_info[image_id]
+        imagePath = info["path"]
         maskPath = info["mask_path"]
         augmentation = info["augmentation_params"]
 
+        image = skimage.io.imread(imagePath)
+        image = kutils.RCNNConvertInputImage(image)
+        
         mask = skimage.io.imread(maskPath)
         if mask.ndim > 2:
             mask = mask[:,:,0]
-
+        
+        segmap = SegmentationMapsOnImage(mask, shape=image.shape)
+        
         if augmentation is not None:
-            mask = image_augmentation.Augment(pImage=mask, pAugmentationMap=augmentation, pIsMask=True)
-
+            segmap = augmentation(segmentation_maps = segmap)
+            mask = segmap.get_arr()
+        
         count = numpy.max(mask)
 
         masks = numpy.zeros([mask.shape[0], mask.shape[1], count], dtype=numpy.uint8)
@@ -94,3 +106,4 @@ class NucleiDataset(mrcnn_utils.Dataset):
         #assign class id 1 to all masks
         class_ids = numpy.array([1 for _ in range(count)])
         return masks, class_ids.astype(numpy.int32)
+

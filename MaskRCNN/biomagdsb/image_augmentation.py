@@ -1,3 +1,6 @@
+# This file has been modified to take full advantage of the imgaug library
+############################################################
+
 import numpy
 import PIL.Image
 import PIL.ImageEnhance

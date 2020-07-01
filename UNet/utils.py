@@ -274,7 +274,7 @@ def random_sample_generator(x_init, y_init, batch_size, n_channels, n_classes, d
 
 
 def GenerateRandomImgaugAugmentation(
-        pAugmentationLevel=9,           # number of augmentations
+        pAugmentationLevel=5,           # number of augmentations
         pEnableFlipping1=True,          # enable x flipping
         pEnableFlipping2=True,          # enable y flipping
         pEnableRotation90=True,           # enable rotation

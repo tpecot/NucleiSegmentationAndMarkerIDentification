@@ -107,8 +107,7 @@ class Segmentation:
             imagePath = os.path.join(imagesDir, imageFile)
             image = skimage.io.imread(imagePath)
 
-            # Andy
-            maxdimValues = [1000]
+            maxdimValues = [1088]
             index = 0
             mask_allScales = numpy.zeros((len(maxdimValues),image.shape[0],image.shape[1]), numpy.uint16)
             for maxdim in maxdimValues:

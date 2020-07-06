@@ -139,30 +139,30 @@ def get_data_sample(file_name):
         
 
 def GenerateRandomImgaugAugmentation(
-        pAugmentationLevel=10,           # number of augmentations
+        pAugmentationLevel=5,           # number of augmentations
         pEnableFlipping1=True,          # enable x flipping
         pEnableFlipping2=True,          # enable y flipping
         pEnableRotation90=True,           # enable rotation
         pEnableRotation=True,           # enable rotation
-        pMaxRotationDegree=5,
+        pMaxRotationDegree=15,
         pEnableShearX=True,             # enable x shear
         pEnableShearY=True,             # enable y shear
-        pMaxShearDegree=5,             # maximum shear degree
+        pMaxShearDegree=15,             # maximum shear degree
         pEnableDropOut=True,            # enable pixel dropout
-        pMaxDropoutPercentage=0.01,     # maximum dropout percentage
+        pMaxDropoutPercentage=0.1,     # maximum dropout percentage
         pEnableBlur=True,               # enable gaussian blur
-        pBlurSigma=.03,                  # maximum sigma for gaussian blur
+        pBlurSigma=.25,                  # maximum sigma for gaussian blur
         pEnableSharpness=True,          # enable sharpness
-        pSharpnessFactor=0.01,           # maximum additional sharpness
+        pSharpnessFactor=0.1,           # maximum additional sharpness
         pEnableEmboss=True,             # enable emboss
-        pEmbossFactor=0.01,              # maximum emboss
+        pEmbossFactor=0.1,              # maximum emboss
         pEnableBrightness=True,         # enable brightness
-        pBrightnessFactor=0.01,         # maximum +- brightness
+        pBrightnessFactor=0.1,         # maximum +- brightness
         pEnableRandomNoise=True,        # enable random noise
-        pMaxRandomNoise=0.01,           # maximum random noise strength
+        pMaxRandomNoise=0.1,           # maximum random noise strength
         pEnableInvert=True,             # enables color invert
         pEnableContrast=True,           # enable contrast change
-        pContrastFactor=0.01,            # maximum +- contrast
+        pContrastFactor=0.1,            # maximum +- contrast
 ):
     
     augmentationMap = []

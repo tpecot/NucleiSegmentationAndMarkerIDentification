@@ -25,7 +25,7 @@ import datetime
 from skimage import data, color
 from skimage.transform import rescale, resize, downscale_local_mean, rotate, AffineTransform, warp
 from skimage.io import imread, imsave
-import skimage.external.tifffile as tiff
+import tifffile as tiff
 import matplotlib.pyplot as plt
 
 import imgaug

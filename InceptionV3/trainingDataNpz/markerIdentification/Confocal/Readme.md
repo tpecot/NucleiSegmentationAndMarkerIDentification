@@ -1,1 +1,1 @@
-The training data used for marker identification in confocal images is saved here.
+The training datasets used for marker identification in confocal images are saved here.

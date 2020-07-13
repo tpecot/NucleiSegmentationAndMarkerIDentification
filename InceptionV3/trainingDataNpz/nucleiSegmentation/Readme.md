@@ -1,1 +1,1 @@
-The training data used for nuclei segmentation is saved here.
+The training datasets used for nuclei segmentation are saved here.

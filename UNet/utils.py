@@ -12,6 +12,7 @@ Import python packages
 
 import numpy as np
 import tensorflow as tf
+import skimage
 
 import os
 from scipy import ndimage
@@ -26,7 +27,7 @@ from skimage import data, color
 from skimage.transform import rescale, resize, downscale_local_mean, rotate, AffineTransform, warp
 from skimage.io import imread, imsave
 import skimage as sk
-import tifffile as tiff
+import skimage.external.tifffile as tiff
 import matplotlib.pyplot as plt
 
 import imgaug
@@ -58,45 +59,50 @@ def rate_scheduler(lr = .001, decay = 0.95):
         return new_lr
     return output_fn
 
-def process_image(channel_img, win_x, win_y):
-    p50 = np.percentile(channel_img, 50)
-    channel_img /= max(p50,0.01)
-    avg_kernel = np.ones((win_x + 1, win_y + 1))
-    channel_img -= ndimage.convolve(channel_img, avg_kernel)/avg_kernel.size
-    return channel_img
+def process_image(img, win_x, win_y):
+    
+    if img.shape[2] == 1:
+        output = np.zeros((img.shape[0], img.shape[1], 1), 'float64')
+        p50 = np.percentile(img, 50)
+        output = img / max(p50,0.01)
+        avg_kernel = np.ones((win_x + 1, win_y + 1))
+        output[:, :, 0] -= ndimage.convolve(output[:, :, 0], avg_kernel)/avg_kernel.size
+    else:
+        output = np.zeros((img.shape[0], img.shape[1], img.shape[2]), 'float64')
+        avg_kernel = np.ones((win_x + 1, win_y + 1))
+        for i in range(img.shape[2]):
+            p50 = np.percentile(img[:, :, i], 50)
+            output[:, :, i] = img[:, :, i] / max(p50,0.01)
+            output[:, :, i] -= ndimage.convolve(output[:, :, i], avg_kernel)/avg_kernel.size
+        
+    return output
 
 def getfiles(direc_name):
     imglist = os.listdir(direc_name)
-    imgfiles = [i for i in imglist if '.png' in i]
-    
-    def sorted_nicely(l):
-        convert = lambda text: int(text) if text.isdigit() else text
-        alphanum_key = lambda key: [convert(c) for c in re.split('([0-9]+)', key)]
-        return sorted(l, key = alphanum_key)
+    imgfiles = [i for i in imglist if ('.png'  in i ) or ('.tif' in i) or ('tiff' in i)]
 
-    imgfiles = sorted_nicely(imgfiles)
+    imgfiles = imgfiles
     return imgfiles
 
 def get_image(file_name):
-    if '.tif' in file_name:
+    if ('.tif' in file_name) or ('tiff' in file_name):
         im = tiff.imread(file_name)
         im = bytescale(im)
         im = np.float32(im)
     else:
         im = np.float32(imread(file_name))
-    return im
-
-def get_image_dim3(file_name):
-    if '.tif' in file_name:
-        im = tiff.imread(file_name)
-        im = bytescale(im)
-        im = np.float32(im)
-    else:
-        im = np.float32(imread(file_name))
+        
     if len(im.shape) < 3:
         output_im = np.zeros((im.shape[0], im.shape[1], 1))
         output_im[:, :, 0] = im
         im = output_im
+    else:
+        if im.shape[0]<im.shape[2]:
+            output_im = np.zeros((im.shape[1], im.shape[2], im.shape[0]))
+            for i in range(im.shape[0]):
+                output_im[:, :, i] = im[i, :, :]
+            im = output_im
+    
     return im
 
 """
@@ -121,16 +127,33 @@ def get_data_sample(training_directory, validation_directory, nb_channels = 1, n
         imageValFileList = [f for f in os.listdir(imglist_validation_directory) if os.path.isfile(os.path.join(imglist_validation_directory, f))]
         for imageFile in imageValFileList:
             baseName = os.path.splitext(os.path.basename(imageFile))[0]
-            imagePath = os.path.join(imglist_validation_directory, imageFile)
-            current_image = get_image_dim3(imagePath)
-            channels_validation.append(current_image.astype('uint8'))
-            maskPath = os.path.join(masklist_validation_directory, baseName + ".png")
+            
+            if os.path.exists(os.path.join(masklist_validation_directory, baseName + ".png")):
+                maskPath = os.path.join(masklist_validation_directory, baseName + ".png")
+            elif os.path.exists(os.path.join(masklist_validation_directory, baseName + ".tif")):
+                maskPath = os.path.join(masklist_validation_directory, baseName + ".tif")
+            elif os.path.exists(os.path.join(masklist_validation_directory, baseName + ".tiff")):
+                maskPath = os.path.join(masklist_validation_directory, baseName + ".tiff")
+            else:
+                raise ValueError("The image " + imageFile + " does not have a corresponding mask file ending with png, tif or tiff")
             current_mask_image = get_image(maskPath)
-            current_mask = np.zeros((current_mask_image.shape[0], current_mask_image.shape[1], nb_classes), 'int32')
-            current_mask[: , :, (nb_classes-1)] = np.where(current_mask_image == 0, 1, 0)
-            for i in range(nb_classes):
-                if i > 0:
-                    current_mask[: , :, i-1] = np.where(current_mask_image == i, 1, 0)
+            
+            min_dimension = current_mask_image.shape[2]
+            if min_dimension == 1:
+                current_mask = np.zeros((current_mask_image.shape[0], current_mask_image.shape[1], nb_classes), 'int32')
+                current_mask[: , :, (nb_classes-1)] = np.where(current_mask_image[:, :, 0] == 0, 1, 0)
+                for i in range(nb_classes):
+                    if i > 0:
+                        current_mask[: , :, i-1] = np.where(current_mask_image[:, :, 0] == i, 1, 0)
+            else:
+                current_mask = np.zeros((current_mask_image.shape[0], current_mask_image.shape[1], nb_classes), 'int32')
+                lastClass_mask = np.zeros((current_mask_image.shape[0], current_mask_image.shape[1]), 'int32')
+                for i in range(current_mask_image.shape[2]):
+                    current_mask[: , :, i] = np.where(current_mask_image[:, :, i] > 0, 1, 0)
+                    lastClass_mask += (current_mask_image[:, :, i]).astype('int32')
+                if current_mask_image.shape[2] < nb_classes:
+                    current_mask[: , :, (nb_classes-1)] = np.where(lastClass_mask == 0, 1, 0)
+                        
             if np.sum(class_to_dilate) > 0:
                 for i in range(nb_classes):
                     if class_to_dilate[i] == 1:
@@ -144,19 +167,50 @@ def get_data_sample(training_directory, validation_directory, nb_channels = 1, n
                         current_mask[:, :, i] = current_mask[:, :, i] > 0
             labels_validation.append(current_mask.astype('int32'))
             
+            imagePath = os.path.join(imglist_validation_directory, imageFile)
+            
+            current_image = get_image(imagePath)
+            channels_validation.append(current_image.astype('uint8'))
+            #image_to_add = np.zeros((current_mask_image.shape[1], current_mask_image.shape[2], nb_channels), 'int32')
+            #if nb_channels > 1:
+            #    if current_image.shape[0] == nb_channels:
+            #        for i in range(nb_channels):
+            #            image_to_add[:, :, i] = current_image[i, :, :]
+            #    else:
+            #        image_to_add = current_image
+            #else:
+            #    image_to_add = current_image
+            #channels_validation.append(image_to_add.astype('uint8'))
+            
         imageFileList = [f for f in os.listdir(imglist_training_directory) if os.path.isfile(os.path.join(imglist_training_directory, f))]
         for imageFile in imageFileList:
             baseName = os.path.splitext(os.path.basename(imageFile))[0]
-            imagePath = os.path.join(imglist_training_directory, imageFile)
-            current_image = get_image_dim3(imagePath)
-            channels_training.append(current_image.astype('uint8'))
-            maskPath = os.path.join(masklist_training_directory, baseName + ".png")
+            
+            if os.path.exists(os.path.join(masklist_training_directory, baseName + ".png")):
+                maskPath = os.path.join(masklist_training_directory, baseName + ".png")
+            elif os.path.exists(os.path.join(masklist_training_directory, baseName + ".tif")):
+                maskPath = os.path.join(masklist_training_directory, baseName + ".tif")
+            elif os.path.exists(os.path.join(masklist_training_directory, baseName + ".tiff")):
+                maskPath = os.path.join(masklist_training_directory, baseName + ".tiff")
+            else:
+                raise ValueError("The image " + imageFile + " does not have a corresponding mask file ending with png, tif or tiff")
             current_mask_image = get_image(maskPath)
-            current_mask = np.zeros((current_mask_image.shape[0], current_mask_image.shape[1], nb_classes), 'int32')
-            current_mask[: , :, (nb_classes-1)] = np.where(current_mask_image == 0, 1, 0)
-            for i in range(nb_classes):
-                if i > 0:
-                    current_mask[: , :, i-1] = np.where(current_mask_image == i, 1, 0)
+            min_dimension = current_mask_image.shape[2]
+            if min_dimension == 1:
+                current_mask = np.zeros((current_mask_image.shape[0], current_mask_image.shape[1], nb_classes), 'int32')
+                current_mask[: , :, (nb_classes-1)] = np.where(current_mask_image[:, :, 0] == 0, 1, 0)
+                for i in range(nb_classes):
+                    if i > 0:
+                        current_mask[: , :, i-1] = np.where(current_mask_image[:, :, 0] == i, 1, 0)
+            else:
+                current_mask = np.zeros((current_mask_image.shape[0], current_mask_image.shape[1], nb_classes), 'int32')
+                lastClass_mask = np.zeros((current_mask_image.shape[0], current_mask_image.shape[1]), 'int32')
+                for i in range(current_mask_image.shape[2]):
+                    current_mask[: , :, i] = np.where(current_mask_image[:, :, i] > 0, 1, 0)
+                    lastClass_mask += (current_mask_image[:, :, i]).astype('int32')
+                if current_mask_image.shape[2] < nb_classes:
+                    current_mask[: , :, (nb_classes-1)] = np.where(lastClass_mask == 0, 1, 0)
+            
             if np.sum(class_to_dilate) > 0:
                 for i in range(nb_classes):
                     if class_to_dilate[i] == 1:
@@ -170,20 +224,55 @@ def get_data_sample(training_directory, validation_directory, nb_channels = 1, n
                         current_mask[:, :, i] = current_mask[:, :, i] > 0
             labels_training.append(current_mask.astype('int32'))
             
+            imagePath = os.path.join(imglist_training_directory, imageFile)
+            current_image = get_image(imagePath)
+            channels_training.append(current_image.astype('uint8'))
+            
+            #image_to_add = np.zeros((current_mask_image.shape[1], current_mask_image.shape[2], nb_channels), 'int32')
+            #if nb_channels > 1:
+            #    if current_image.shape[0] == nb_channels:
+            #        for i in range(nb_channels):
+            #            image_to_add[:, :, i] = current_image[i, :, :]
+            #    else:
+            #        image_to_add = current_image
+            #else:
+            #    image_to_add = current_image
+            #channels_training.append(image_to_add.astype('uint8'))
+            
     # splitting train data into train and validation
     else:
         imageValFileList = [f for f in os.listdir(imglist_training_directory) if os.path.isfile(os.path.join(imglist_training_directory, f))]
         for imageFile in imageValFileList:
             baseName = os.path.splitext(os.path.basename(imageFile))[0]
             imagePath = os.path.join(imglist_training_directory, imageFile)
-            current_image = get_image_dim3(imagePath)
-            maskPath = os.path.join(imglist_training_directory, baseName + ".png")
+            current_image = get_image(imagePath)
+            
+            if os.path.exists(os.path.join(masklist_training_directory, baseName + ".png")):
+                maskPath = os.path.join(masklist_training_directory, baseName + ".png")
+            elif os.path.exists(os.path.join(masklist_training_directory, baseName + ".tif")):
+                maskPath = os.path.join(masklist_training_directory, baseName + ".tif")
+            elif os.path.exists(os.path.join(masklist_training_directory, baseName + ".tiff")):
+                maskPath = os.path.join(masklist_training_directory, baseName + ".tiff")
+            else:
+                raise ValueError("The image " + imageFile + " does not have a corresponding mask file ending with png, tif or tiff")
             current_mask_image = get_image(maskPath)
-            current_mask = np.zeros((current_mask_image.shape[0], current_mask_image.shape[1], nb_classes), 'int32')
-            current_mask[: , :, (nb_classes-1)] = np.where(current_mask_image == 0, 1, 0)
-            for i in range(nb_classes):
-                if i > 0:
-                    current_mask[: , :, i-1] = np.where(current_mask_image == i, 1, 0)
+
+            min_dimension = current_mask_image.shape[2]
+            if min_dimension == 1:
+                current_mask = np.zeros((current_mask_image.shape[0], current_mask_image.shape[1], nb_classes), 'int32')
+                current_mask[: , :, (nb_classes-1)] = np.where(current_mask_image[:, :, 0] == 0, 1, 0)
+                for i in range(nb_classes):
+                    if i > 0:
+                        current_mask[: , :, i-1] = np.where(current_mask_image[:, :, 0] == i, 1, 0)
+            else:
+                current_mask = np.zeros((current_mask_image.shape[0], current_mask_image.shape[1], nb_classes), 'int32')
+                lastClass_mask = np.zeros((current_mask_image.shape[0], current_mask_image.shape[1]), 'int32')
+                for i in range(current_mask_image.shape[2]):
+                    current_mask[: , :, i] = np.where(current_mask_image[:, :, i] > 0, 1, 0)
+                    lastClass_mask += (current_mask_image[:, :, i]).astype('int32')
+                if current_mask_image.shape[2] < nb_classes:
+                    current_mask[: , :, (nb_classes-1)] = np.where(lastClass_mask == 0, 1, 0)
+                    
             if np.sum(class_to_dilate) > 0:
                 for i in range(nb_classes):
                     if class_to_dilate[i] == 1:
@@ -214,8 +303,8 @@ def get_data_sample(training_directory, validation_directory, nb_channels = 1, n
     
     X_test = np.asarray(channels_validation).astype('float32')
     for k in range(X_test.shape[0]):
-        for j in range(X_test.shape[-1]):
-            X_test[k,:,:,j] = process_image(X_test[k,:,:,j], dim_norm1, dim_norm2)
+        #for j in range(X_test.shape[-1]):
+        X_test[k,:,:,:] = process_image(X_test[k,:,:,:], dim_norm1, dim_norm2)
     X_test = X_test[:,0:imaging_field_x,0:imaging_field_y,:]
     Y_test = np.asarray(labels_validation)[:,0:imaging_field_x,0:imaging_field_y,:]
     
@@ -261,20 +350,19 @@ def random_sample_generator(x_init, y_init, batch_size, n_channels, n_classes, d
 
             # image normalization
             patch_x = patch_x.astype('float32')
-            for j in range(patch_x.shape[-1]):
-                patch_x[:,:,j] = process_image(patch_x[:,:,j], dim_norm1, dim_norm2)
+            #for j in range(patch_x.shape[-1]):
+            patch_x = process_image(patch_x, dim_norm1, dim_norm2)
 
             # save image to buffer
             x[k, :, :, :] = patch_x
             y[k, :, :, :] = patch_y
             cpt += 1
-            
         # return the buffer
         yield(x, y)
 
 
 def GenerateRandomImgaugAugmentation(
-        pAugmentationLevel=5,           # number of augmentations
+        pAugmentationLevel=9,           # number of augmentations
         pEnableFlipping1=True,          # enable x flipping
         pEnableFlipping2=True,          # enable y flipping
         pEnableRotation90=True,           # enable rotation
@@ -428,8 +516,8 @@ def random_sample_generator_dataAugmentation(x_init, y_init, batch_size, n_chann
             
             # image normalization
             x_norm = x_aug.astype('float32')
-            for j in range(x_norm.shape[-1]):
-                x_norm[:,:,j] = process_image(x_norm[:,:,j], dim_norm1, dim_norm2)
+            #for j in range(x_norm.shape[-1]):
+            x_norm = process_image(x_norm, dim_norm1, dim_norm2)
                 
             # get random crop
             start_dim1 = np.random.randint(low=0, high=x_big.shape[0] - dim1)
@@ -478,17 +566,17 @@ def train_model_sample(model = None, dataset_training = None,  dataset_validatio
     file_name_save = os.path.join(direc_save, todays_date + "_" + expt + ".h5")
     file_name_save_loss = os.path.join(direc_save, todays_date + "_" + expt + ".npz")
 
-    train_dict, (X_test, Y_test) = get_data_sample(dataset_training, dataset_validation, imaging_field_x = imaging_field_x, imaging_field_y = imaging_field_y, nb_augmentations = nb_augmentations, dim_norm1 = normalizing_window_size_x, dim_norm2 = normalizing_window_size_y,  validationTrainingRatio = 0.1, class_to_dilate = class_to_dilate, dil_radius = dil_radius)
-
-    # data information (one way for the user to check if the training dataset makes sense)
-    print(train_dict["channels"].shape[0], 'training images')
-    print(X_test.shape[0], 'validation images')
-
     # determine the number of channels and classes
     input_shape = model.layers[0].output_shape
     n_channels = input_shape[-1]
     output_shape = model.layers[-1].output_shape
     n_classes = output_shape[-1]
+
+    train_dict, (X_test, Y_test) = get_data_sample(dataset_training, dataset_validation, nb_channels = n_channels, nb_classes = n_classes, imaging_field_x = imaging_field_x, imaging_field_y = imaging_field_y, nb_augmentations = nb_augmentations, dim_norm1 = normalizing_window_size_x, dim_norm2 = normalizing_window_size_y,  validationTrainingRatio = 0.1, class_to_dilate = class_to_dilate, dil_radius = dil_radius)
+
+    # data information (one way for the user to check if the training dataset makes sense)
+    print(train_dict["channels"].shape[0], 'training images')
+    print(X_test.shape[0], 'validation images')
 
     # determine the weights for the weighted cross-entropy based on class distribution for training dataset
     w1 = max(np.sum(train_dict['labels'][:,:,:,0]), np.sum(train_dict['labels'][:,:,:,1]), np.sum(train_dict['labels'][:,:,:,2])) / np.sum(train_dict['labels'][:,:,:,0])
@@ -523,7 +611,7 @@ def get_image_sizes(data_location):
     img_list += [getfiles(data_location)]
     img_temp = get_image(os.path.join(data_location, img_list[0][0]))
 
-    return img_temp.shape
+    return img_temp.shape[0], img_temp.shape[1]
 
 def get_images_from_directory(data_location):
     img_list = []
@@ -531,25 +619,18 @@ def get_images_from_directory(data_location):
 
     img_temp = get_image(os.path.join(data_location, img_list[0][0]))
     
-    n_channels = 1
-    if len(img_temp.shape) > 2:
-        n_channels = len(img_temp.shape[2])
     all_images = []
-
     for stack_iteration in range(len(img_list[0])):
-        all_channels = np.zeros((1, img_temp.shape[0],img_temp.shape[1], n_channels), dtype = 'float32')
-        for j in range(n_channels):
-            channel_img = get_image(os.path.join(data_location, img_list[j][stack_iteration]))
-            all_channels[0,:,:,j] = channel_img
+        all_channels = np.zeros((1, img_temp.shape[0], img_temp.shape[1], img_temp.shape[2]), dtype = 'float32')
+        current_img = get_image(os.path.join(data_location, img_list[0][stack_iteration]))
+        all_channels[0, :, :, :] = current_img
         all_images += [all_channels]
-
+        
     return all_images
 
 def run_model(img, model, imaging_field_x = 256, imaging_field_y = 256, normalizing_window_size_x = 64, normalizing_window_size_y = 64):
     
-    for j in range(img.shape[-1]):
-        img[0,:,:,j] = process_image(img[0,:,:,j], normalizing_window_size_x, normalizing_window_size_y)
-
+    img[0, :, :, :] = process_image(img[0, :, :, :], normalizing_window_size_x, normalizing_window_size_y)
     img = np.pad(img, pad_width = [(0,0), (5,5), (5,5), (0,0)], mode = 'reflect')
             
     n_classes = model.layers[-1].output_shape[-1]
@@ -599,6 +680,7 @@ def run_models_on_directory(data_location, output_location, model, normalizing_w
 
     # process images
     counter = 0
+    img_list_files = [getfiles(data_location)]
 
     image_list = get_images_from_directory(data_location)
     processed_image_list = []
@@ -607,12 +689,11 @@ def run_models_on_directory(data_location, output_location, model, normalizing_w
         print("Processing image ",str(counter + 1)," of ",str(len(image_list)))
         processed_image = run_model(img, model, imaging_field_x = imaging_field_x, imaging_field_y = imaging_field_y, normalizing_window_size_x = normalizing_window_size_x, normalizing_window_size_y = normalizing_window_size_y)
         processed_image_list += [processed_image]
-  
+        
         # Save images
-        for feat in range(n_classes):
-            current_class = processed_image[:,:,feat]
-            cnnout_name = os.path.join(output_location, 'feature_' + str(feat) + "_frame_" + str(counter) + '.tif')
-            tiff.imsave(cnnout_name,current_class)
+        cnnout_name = os.path.join(output_location, os.path.splitext(img_list_files[0][counter])[0] + ".tiff")
+        tiff.imsave(cnnout_name, processed_image)
+
         counter += 1
 
     return processed_image_list

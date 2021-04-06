@@ -10,4 +10,4 @@ Marker identification is also performed using an Inception-V3 architecture.
 
 # Citation
 Please cite our paper if you use our method: <br> 
-Thierry Pécot, Maria C. Cuitiño, Roger H. Johnson, Cynthia Timmers, Gustavo Leone (2021): [Deep learning tools and modeling to estimate the temporal expression of E2Fs over the cell cycle from 2D still images](https://www.biorxiv.org/content/10.1101/2021.03.01.433386v1)
+Thierry Pécot, Maria C. Cuitiño, Roger H. Johnson, Cynthia Timmers, Gustavo Leone (2021): [Deep learning tools and modeling to estimate temporal expression of cell cycle proteins from 2D still images](https://www.biorxiv.org/content/10.1101/2021.03.01.433386v1)

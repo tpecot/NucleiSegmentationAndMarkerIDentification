@@ -1,6 +1,3 @@
-# This file has been modified to take full advantage of the imgaug library
-############################################################
-
 import numpy
 import PIL.Image
 import PIL.ImageEnhance
@@ -29,7 +26,7 @@ def GenerateRandomImgaugAugmentation(
         pEnableShearY=True,             # enable y shear
         pMaxShearDegree=15,             # maximum shear degree
         pEnableDropOut=True,            # enable pixel dropout
-        pMaxDropoutPercentage=0.1,     # maximum dropout percentage
+        pMaxDropoutPercentage=.1,     # maximum dropout percentage
         pEnableBlur=True,               # enable gaussian blur
         pBlurSigma=.25,                  # maximum sigma for gaussian blur
         pEnableSharpness=True,          # enable sharpness
@@ -40,7 +37,7 @@ def GenerateRandomImgaugAugmentation(
         pBrightnessFactor=.1,         # maximum +- brightness
         pEnableRandomNoise=True,        # enable random noise
         pMaxRandomNoise=.1,           # maximum random noise strength
-        pEnableInvert=True,             # enables color invert
+        pEnableInvert=False,             # enables color invert
         pEnableContrast=True,           # enable contrast change
         pContrastFactor=.1,            # maximum +- contrast
 ):

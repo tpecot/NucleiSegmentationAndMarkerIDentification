@@ -1,6 +1,3 @@
-# This file has been modified to take full advantage of the imgaug library
-############################################################
-
 import mrcnn_config
 import mrcnn_utils
 import kutils
@@ -23,6 +20,7 @@ class NucleiConfig(mrcnn_config.Config):
     DETECTION_MIN_CONFIDENCE = 0.5
     DETECTION_NMS_THRESHOLD = 0.35
     RPN_NMS_THRESHOLD = 0.55
+    BATCH_SIZE = 1000
 
 
 
@@ -37,10 +35,25 @@ class NucleiDataset(mrcnn_utils.Dataset):
             baseName = os.path.splitext(os.path.basename(imageFile))[0]
 
             image = skimage.io.imread(imageFile)
-            if image.ndim < 2 or image.dtype != numpy.uint8:
-                continue
-
-            self.add_image(source="nuclei", image_id=imageIndex, path=imageFile, name=baseName, width=image.shape[1], height=image.shape[0], mask_path=maskFile, augmentation_params=None)
+            if image.ndim == 1:
+                sys.exit("Problem: the images in the training dataset are 1 dimension only")
+            if image.ndim == 2:
+                image_width = image.shape[1]
+                image_height = image.shape[0]
+                
+            if image.ndim == 3:
+                if image.shape[0] < image.shape[2]:
+                    image_width = image.shape[2]
+                    image_height = image.shape[1]
+                else:
+                    image_width = image.shape[1]
+                    image_height = image.shape[0]
+            if image.ndim > 3:
+                sys.exit("Problem: the images in the training dataset are more than 2D + C")
+            if image.dtype != numpy.uint8:
+                image = image.astype('uint8')
+                
+            self.add_image(source="nuclei", image_id=imageIndex, path=imageFile, name=baseName, width=image_width, height=image_height, mask_path=maskFile, augmentation_params=None)
             imageIndex += 1
 
             #adding augmentation parameters
@@ -89,7 +102,11 @@ class NucleiDataset(mrcnn_utils.Dataset):
         
         mask = skimage.io.imread(maskPath)
         if mask.ndim > 2:
-            mask = mask[:,:,0]
+            if mask.shape[0] < mask.shape[2]:
+                mask = mask[0, :, :]
+            else:
+                mask = mask[:,:,0]
+        
         
         segmap = SegmentationMapsOnImage(mask, shape=image.shape)
         
@@ -97,15 +114,26 @@ class NucleiDataset(mrcnn_utils.Dataset):
             segmap = augmentation(segmentation_maps = segmap)
             mask = segmap.get_arr()
         
-        count = numpy.max(mask)
-
+        maskIndexMax = numpy.max(mask)
+        newMaskIndices = numpy.zeros([maskIndexMax], dtype=numpy.uint32)
+        for y in range(mask.shape[0]):
+            for x in range(mask.shape[1]):
+                index = int(mask[y,x]) - 1
+                if index >= 0:
+                    newMaskIndices[index] = 1
+        count = 0
+        for i in range(maskIndexMax):
+            if newMaskIndices[i] > 0:
+                newMaskIndices[i] = count
+                count += 1
+        
         masks = numpy.zeros([mask.shape[0], mask.shape[1], count], dtype=numpy.uint8)
         for y in range(mask.shape[0]):
             for x in range(mask.shape[1]):
                 index = int(mask[y,x]) - 1
                 if index >= 0:
-                    masks[y,x,index] = 1
-
+                    masks[y,x,newMaskIndices[index]] = 1
+                    
         #assign class id 1 to all masks
         class_ids = numpy.array([1 for _ in range(count)])
         return masks, class_ids.astype(numpy.int32)

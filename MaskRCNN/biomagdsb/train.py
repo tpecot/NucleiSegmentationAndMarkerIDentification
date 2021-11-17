@@ -171,11 +171,11 @@ class MaskTrain:
         # Create model in training mode
         mdl = model.MaskRCNN(mode="training", config=config, model_dir=os.path.dirname(outModelPath))
 
-        if blankInput:
-            mdl.load_weights(inModelPath, by_name=True,
-                             exclude=["mrcnn_class_logits", "mrcnn_bbox_fc", "mrcnn_bbox", "mrcnn_mask"])
-        else:
-            mdl.load_weights(inModelPath, by_name=True)
+        #if blankInput:
+        #    mdl.load_weights(inModelPath, by_name=True,
+        #                     exclude=["mrcnn_class_logits", "mrcnn_bbox_fc", "mrcnn_bbox", "mrcnn_mask"])
+        #else:
+        #    mdl.load_weights(inModelPath, by_name=True)
 
         allcount = 0
         for epochgroup in self.__mParams["epoch_groups"]:

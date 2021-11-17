@@ -8,7 +8,7 @@ Model bank - deep convolutional neural network architectures
 
 from keras.preprocessing.image import ImageDataGenerator
 from keras.models import Sequential
-from keras.layers import Input, concatenate, Dense, Activation, Convolution2D, MaxPooling2D, AveragePooling2D, GlobalMaxPooling2D, GlobalAveragePooling2D
+from keras.layers import Input, concatenate, Dense, Activation, Convolution2D, MaxPooling2D, AveragePooling2D, GlobalMaxPooling2D, GlobalAveragePooling2D, Dropout
 from keras.layers.normalization import BatchNormalization
 from keras.layers.convolutional import ZeroPadding2D, UpSampling2D
 from keras.regularizers import l2

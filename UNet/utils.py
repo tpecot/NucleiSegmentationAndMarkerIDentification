@@ -11,47 +11,236 @@ Import python packages
 """
 
 import numpy as np
-import tensorflow as tf
-import skimage
-
 import os
+
+import tensorflow as tf
+tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.WARN)
+from tensorflow.compat.v1 import ConfigProto
+from tensorflow.compat.v1 import InteractiveSession
+config = ConfigProto()
+config.gpu_options.allow_growth = True
+config.gpu_options.per_process_gpu_memory_fraction = 0.5
+session = InteractiveSession(config=config)
+
+import skimage
+import tempfile
+
+import sys
 from scipy import ndimage
 from scipy.misc import bytescale
 import threading
 from threading import Thread, Lock
 import h5py
-import re
-import datetime
+import csv
+import shutil
 
-from skimage import data, color
-from skimage.transform import rescale, resize, downscale_local_mean, rotate, AffineTransform, warp
 from skimage.io import imread, imsave
 import skimage as sk
-import skimage.external.tifffile as tiff
+import tifffile as tiff
+import cv2
 import matplotlib.pyplot as plt
 
 import imgaug
 import imgaug.augmenters as iaa
 from imgaug.augmentables.segmaps import SegmentationMapsOnImage
 import random
-import PIL.Image
-import PIL.ImageEnhance
-import PIL.ImageOps
-import copy
 
 from keras import backend as K
-from keras.layers.normalization import BatchNormalization
-from keras.preprocessing.image import random_rotation, random_shift, random_shear, random_zoom, random_channel_shift
-from keras.preprocessing.image import array_to_img, img_to_array, load_img
-from keras.callbacks import ModelCheckpoint, LearningRateScheduler
-from keras.engine import Layer, InputSpec
+from keras.callbacks import ModelCheckpoint, LearningRateScheduler, TensorBoard
+from keras.optimizers import RMSprop
+    
+import datetime
+import math
+
+import ipywidgets as widgets
+import ipyfilechooser
+from ipyfilechooser import FileChooser
+from ipywidgets import HBox, Label, Layout
+
+from models import unet as unet
 from keras.utils import np_utils
 
 
 """
-Helper functions
+Interfaces
 """
 
+def training_parameters_interface(nb_trainings):
+    training_dir = np.zeros([nb_trainings], FileChooser)
+    validation_dir = np.zeros([nb_trainings], FileChooser)
+    output_dir = np.zeros([nb_trainings], FileChooser)
+    saved_model = np.zeros([nb_trainings], HBox)
+    nb_channels = np.zeros([nb_trainings], HBox)
+    nb_classes = np.zeros([nb_trainings], HBox)
+    imaging_field_x = np.zeros([nb_trainings], HBox)
+    imaging_field_y = np.zeros([nb_trainings], HBox)
+    learning_rate = np.zeros([nb_trainings], HBox)
+    nb_epochs = np.zeros([nb_trainings], HBox)
+    nb_augmentations = np.zeros([nb_trainings], HBox)
+    batch_size = np.zeros([nb_trainings], HBox)
+    train_to_val_ratio = np.zeros([nb_trainings], HBox)
+    
+    parameters = []
+    for i in range(nb_trainings):
+        print('\x1b[1m'+"Training directory")
+        training_dir[i] = FileChooser('./datasets')
+        display(training_dir[i])
+        print('\x1b[1m'+"Validation directory")
+        validation_dir[i] = FileChooser('./datasets')
+        display(validation_dir[i])
+        print('\x1b[1m'+"Output directory")
+        output_dir[i] = FileChooser('./trainedClassifiers')
+        display(output_dir[i])
+
+        label_layout = Layout(width='200px',height='30px')
+
+        saved_model[i] = HBox([Label('Saving model as TF SavedModel:', layout=label_layout), widgets.Checkbox(
+            value=False, description='',disabled=False)])
+        display(saved_model[i])
+
+        nb_channels[i] = HBox([Label('Number of channels:', layout=label_layout), widgets.IntText(
+            value=1, description='', disabled=False)])
+        display(nb_channels[i])
+
+        nb_classes[i] = HBox([Label('Number of classes:', layout=label_layout), widgets.IntText(
+            value=3, description='', disabled=False)])
+        display(nb_classes[i])
+
+        imaging_field_x[i] = HBox([Label('Imaging field in x:', layout=label_layout), widgets.IntText(
+            value=256, description='', disabled=False)])
+        display(imaging_field_x[i])
+
+        imaging_field_y[i] = HBox([Label('Imaging field in y:', layout=label_layout), widgets.IntText(
+            value=256, description='', disabled=False)])
+        display(imaging_field_y[i])
+
+        learning_rate[i] = HBox([Label('Learning rate:', layout=label_layout), widgets.FloatText(
+            value=1e-4, description='', disabled=False)])
+        display(learning_rate[i])
+
+        nb_epochs[i] = HBox([Label('Number of epochs:', layout=label_layout), widgets.IntText(
+            value=100, description='', disabled=False)])
+        display(nb_epochs[i])
+
+        nb_augmentations[i] = HBox([Label('Number of augmentations:', layout=label_layout), widgets.IntText(
+            value=0, description='', disabled=False)])
+        display(nb_augmentations[i])
+
+        batch_size[i] = HBox([Label('Batch size:', layout=label_layout), widgets.IntText(
+            value=1, description='', disabled=False)])
+        display(batch_size[i])
+
+        train_to_val_ratio[i] = HBox([Label('Ratio of training in validation:', layout=label_layout), widgets.BoundedFloatText(
+            value=0.2, min=0.01, max=0.99, step=0.01, description='', disabled=False, color='black'
+        )])
+        display(train_to_val_ratio[i])
+
+    parameters.append(training_dir)
+    parameters.append(validation_dir)
+    parameters.append(output_dir)
+    parameters.append(saved_model)
+    parameters.append(nb_channels)
+    parameters.append(nb_classes)
+    parameters.append(imaging_field_x)
+    parameters.append(imaging_field_y)
+    parameters.append(learning_rate)
+    parameters.append(nb_epochs)
+    parameters.append(nb_augmentations)
+    parameters.append(batch_size)
+    parameters.append(train_to_val_ratio)
+    
+    return parameters  
+
+def running_parameters_interface(nb_trainings):
+    input_dir = np.zeros([nb_trainings], FileChooser)
+    input_classifier = np.zeros([nb_trainings], FileChooser)
+    output_dir = np.zeros([nb_trainings], FileChooser)
+    output_mode = np.zeros([nb_trainings], HBox)
+    nb_channels = np.zeros([nb_trainings], HBox)
+    nb_classes = np.zeros([nb_trainings], HBox)
+    imaging_field_x = np.zeros([nb_trainings], HBox)
+    imaging_field_y = np.zeros([nb_trainings], HBox)
+    
+    parameters = []
+    for i in range(nb_trainings):
+        print('\x1b[1m'+"Input directory")
+        input_dir[i] = FileChooser('./datasets')
+        display(input_dir[i])
+        print('\x1b[1m'+"Input classifier")
+        input_classifier[i] = FileChooser('./trainedClassifiers')
+        display(input_classifier[i])
+        print('\x1b[1m'+"Output directory")
+        output_dir[i] = FileChooser('./datasets')
+        display(output_dir[i])
+
+        label_layout = Layout(width='150px',height='30px')
+
+        output_mode[i] = HBox([Label('Score:', layout=label_layout), widgets.Checkbox(
+            value=False, description='',disabled=False)])
+        display(output_mode[i])
+        
+        nb_channels[i] = HBox([Label('Number of channels:', layout=label_layout), widgets.IntText(
+            value=1, description='', disabled=False)])
+        display(nb_channels[i])
+
+        nb_classes[i] = HBox([Label('Number of classes:', layout=label_layout), widgets.IntText(
+            value=3, description='', disabled=False)])
+        display(nb_classes[i])
+
+        imaging_field_x[i] = HBox([Label('Imaging field in x:', layout=label_layout), widgets.IntText(
+            value=256, description='', disabled=False)])
+        display(imaging_field_x[i])
+
+        imaging_field_y[i] = HBox([Label('Imaging field in y:', layout=label_layout), widgets.IntText(
+            value=256, description='', disabled=False)])
+        display(imaging_field_y[i])
+
+    parameters.append(input_dir)
+    parameters.append(input_classifier)
+    parameters.append(output_dir)
+    parameters.append(output_mode)
+    parameters.append(nb_channels)
+    parameters.append(nb_classes)
+    parameters.append(imaging_field_x)
+    parameters.append(imaging_field_y)
+    
+    return parameters  
+
+"""
+Training and processing calling functions 
+"""
+
+def training(nb_trainings, parameters):
+    for i in range(nb_trainings):
+        if parameters[0][i].selected==None:
+            sys.exit("Training #"+str(i+1)+": You need to select an input directory for training")
+        if parameters[2][i].selected==None:
+            sys.exit("Training #"+str(i+1)+": You need to select an output directory for the trained classifier")
+    
+
+        model = unet(parameters[5][i].children[1].value, parameters[6][i].children[1].value, parameters[7][i].children[1].value, parameters[4][i].children[1].value)
+        model_name = "UNet_"+str(parameters[4][i].children[1].value)+"ch_"+str(parameters[5][i].children[1].value)+"cl_"+str(parameters[6][i].children[1].value)+"_"+str(parameters[7][i].children[1].value)+"_lr_"+str(parameters[8][i].children[1].value)+"_"+str(parameters[10][i].children[1].value)+"DA_"+str(parameters[9][i].children[1].value)+"ep"
+
+        train_model_sample(model, parameters[0][i].selected, parameters[1][i].selected, model_name,parameters[11][i].children[1].value, parameters[9][i].children[1].value, parameters[6][i].children[1].value, parameters[7][i].children[1].value, parameters[2][i].selected, parameters[3][i].children[1].value, parameters[8][i].children[1].value, parameters[10][i].children[1].value, parameters[12][i].children[1].value)
+        del model
+        
+def running(nb_runnings, parameters):
+    for i in range(nb_runnings):
+        if parameters[0][i].selected==None:
+            sys.exit("Running #"+str(i+1)+": You need to select an input directory for images to be processed")
+        if parameters[1][i].selected==None:
+            sys.exit("Running #"+str(i+1)+": You need to select a trained classifier to run your images")
+        if parameters[2][i].selected==None:
+            sys.exit("Running #"+str(i+1)+": You need to select an output directory for processed images")
+
+        model = unet(parameters[5][i].children[1].value, parameters[6][i].children[1].value, parameters[7][i].children[1].value, parameters[4][i].children[1].value, parameters[1][i].selected)
+        run_models_on_directory(parameters[0][i].selected, parameters[2][i].selected, model, parameters[3][i].children[1].value)
+        del model
+    
+        
+"""
+Useful functions 
+"""
 def rate_scheduler(lr = .001, decay = 0.95):
     def output_fn(epoch):
         epoch = np.int(epoch)
@@ -59,27 +248,36 @@ def rate_scheduler(lr = .001, decay = 0.95):
         return new_lr
     return output_fn
 
-def process_image(img, win_x, win_y):
+def process_image(img):
     
     if img.shape[2] == 1:
-        output = np.zeros((img.shape[0], img.shape[1], 1), 'float64')
-        p50 = np.percentile(img, 50)
-        output = img / max(p50,0.01)
-        avg_kernel = np.ones((win_x + 1, win_y + 1))
-        output[:, :, 0] -= ndimage.convolve(output[:, :, 0], avg_kernel)/avg_kernel.size
-    else:
-        output = np.zeros((img.shape[0], img.shape[1], img.shape[2]), 'float64')
-        avg_kernel = np.ones((win_x + 1, win_y + 1))
-        for i in range(img.shape[2]):
-            p50 = np.percentile(img[:, :, i], 50)
-            output[:, :, i] = img[:, :, i] / max(p50,0.01)
-            output[:, :, i] -= ndimage.convolve(output[:, :, i], avg_kernel)/avg_kernel.size
+        output = np.zeros((img.shape[0], img.shape[1], 1), 'float32')
         
+        percentile = 99.
+        high = np.percentile(img, percentile)
+        low = np.percentile(img, 100-percentile)
+
+        output = np.minimum(high, img)
+        output = np.maximum(low, output)
+
+        output = (output - low) / (high - low)
+
+    else:
+        output = np.zeros((img.shape[0], img.shape[1], img.shape[2]), 'float32')
+        for i in range(img.shape[2]):
+            percentile = 98.
+            high = np.percentile(img[:,:,i], percentile)
+            low = np.percentile(img[:,:,i], 100-percentile)
+            
+            output[:,:,i] = np.minimum(high, img[:,:,i])
+            output[:,:,i] = np.maximum(low, output[:,:,i])
+            output[:,:,i] = (output[:,:,i] - low) / (high - low)
+    
     return output
 
 def getfiles(direc_name):
     imglist = os.listdir(direc_name)
-    imgfiles = [i for i in imglist if ('.png'  in i ) or ('.tif' in i) or ('tiff' in i)]
+    imgfiles = [i for i in imglist if ('.png'  in i ) or ('.jpg'  in i ) or ('.tif' in i) or ('tiff' in i)]
 
     imgfiles = imgfiles
     return imgfiles
@@ -87,10 +285,9 @@ def getfiles(direc_name):
 def get_image(file_name):
     if ('.tif' in file_name) or ('tiff' in file_name):
         im = tiff.imread(file_name)
-        im = bytescale(im)
         im = np.float32(im)
     else:
-        im = np.float32(imread(file_name))
+        im = cv2.imread(file_name)
         
     if len(im.shape) < 3:
         output_im = np.zeros((im.shape[0], im.shape[1], 1))
@@ -108,13 +305,13 @@ def get_image(file_name):
 """
 Data generator for training_data
 """
-def get_data_sample(training_directory, validation_directory, nb_channels = 1, nb_classes = 3, imaging_field_x = 256, imaging_field_y = 256, nb_augmentations = 1, dim_norm1 = 64, dim_norm2 = 64, validationTrainingRatio = 0.1, class_to_dilate = [0,0,0], dil_radius = 1):
+def get_data_sample(training_directory, validation_directory, nb_channels = 1, nb_classes = 3, imaging_field_x = 256, imaging_field_y = 256, nb_augmentations = 1, validation_training_ratio = 0.1):
 
     channels_training = []
     labels_training = []
     channels_validation = []
     labels_validation = []
-    
+
     imglist_training_directory = os.path.join(training_directory, 'images/')
     masklist_training_directory = os.path.join(training_directory, 'masks/')
 
@@ -124,7 +321,8 @@ def get_data_sample(training_directory, validation_directory, nb_channels = 1, n
         imglist_validation_directory = os.path.join(validation_directory, 'images/')
         masklist_validation_directory = os.path.join(validation_directory, 'masks/')
 
-        imageValFileList = [f for f in os.listdir(imglist_validation_directory) if os.path.isfile(os.path.join(imglist_validation_directory, f))]
+        imageValFileList = [f for f in os.listdir(imglist_validation_directory) if ('.png'  in f ) or ('.tif' in f) or ('tiff' in f)]
+        
         for imageFile in imageValFileList:
             baseName = os.path.splitext(os.path.basename(imageFile))[0]
             
@@ -135,16 +333,25 @@ def get_data_sample(training_directory, validation_directory, nb_channels = 1, n
             elif os.path.exists(os.path.join(masklist_validation_directory, baseName + ".tiff")):
                 maskPath = os.path.join(masklist_validation_directory, baseName + ".tiff")
             else:
-                raise ValueError("The image " + imageFile + " does not have a corresponding mask file ending with png, tif or tiff")
+                sys.exit("The image " + imageFile + " does not have a corresponding mask file ending with png, tif or tiff")
             current_mask_image = get_image(maskPath)
-            
+            if current_mask_image.shape[0]<imaging_field_x:
+                sys.exit("The mask " + baseName + " has a smaller x dimension than the imaging field")
+            if current_mask_image.shape[1]<imaging_field_y:
+                sys.exit("The mask " + baseName + " has a smaller y dimension than the imaging field")
+                
             min_dimension = current_mask_image.shape[2]
             if min_dimension == 1:
-                current_mask = np.zeros((current_mask_image.shape[0], current_mask_image.shape[1], nb_classes), 'int32')
-                current_mask[: , :, (nb_classes-1)] = np.where(current_mask_image[:, :, 0] == 0, 1, 0)
-                for i in range(nb_classes):
-                    if i > 0:
-                        current_mask[: , :, i-1] = np.where(current_mask_image[:, :, 0] == i, 1, 0)
+                if nb_classes>2:
+                    current_mask = np.zeros((current_mask_image.shape[0], current_mask_image.shape[1], nb_classes), 'int32')
+                    current_mask[: , :, (nb_classes-1)] = np.where(current_mask_image[:, :, 0] == 0, 1, 0)
+                    for i in range(nb_classes):
+                        if i > 0:
+                            current_mask[: , :, i-1] = np.where(current_mask_image[:, :, 0] == i, 1, 0)
+                else:
+                    current_mask = np.zeros((current_mask_image.shape[0], current_mask_image.shape[1], nb_classes), 'int32')
+                    current_mask[: , :, 0] = np.where(current_mask_image[:, :, 0] == 0, 1, 0)
+                    current_mask[: , :, 1] = np.where(current_mask_image[:, :, 0] > 0, 1, 0)
             else:
                 current_mask = np.zeros((current_mask_image.shape[0], current_mask_image.shape[1], nb_classes), 'int32')
                 lastClass_mask = np.zeros((current_mask_image.shape[0], current_mask_image.shape[1]), 'int32')
@@ -154,35 +361,22 @@ def get_data_sample(training_directory, validation_directory, nb_channels = 1, n
                 if current_mask_image.shape[2] < nb_classes:
                     current_mask[: , :, (nb_classes-1)] = np.where(lastClass_mask == 0, 1, 0)
                         
-            if np.sum(class_to_dilate) > 0:
-                for i in range(nb_classes):
-                    if class_to_dilate[i] == 1:
-                        strel = sk.morphology.disk(dil_radius)
-                        current_mask[: , :, i] = sk.morphology.binary_dilation(current_mask[: , :, i], selem = strel)
-                for i in range(nb_classes):
-                    if class_to_dilate[i] != 1:
-                        for k in range(nb_classes):
-                            if class_to_dilate[k] == 1:
-                                current_mask[:, :, i] -= current_mask[:, :, k]
-                        current_mask[:, :, i] = current_mask[:, :, i] > 0
             labels_validation.append(current_mask.astype('int32'))
             
             imagePath = os.path.join(imglist_validation_directory, imageFile)
             
             current_image = get_image(imagePath)
-            channels_validation.append(current_image.astype('uint8'))
-            #image_to_add = np.zeros((current_mask_image.shape[1], current_mask_image.shape[2], nb_channels), 'int32')
-            #if nb_channels > 1:
-            #    if current_image.shape[0] == nb_channels:
-            #        for i in range(nb_channels):
-            #            image_to_add[:, :, i] = current_image[i, :, :]
-            #    else:
-            #        image_to_add = current_image
-            #else:
-            #    image_to_add = current_image
-            #channels_validation.append(image_to_add.astype('uint8'))
+            if current_image.shape[0]<imaging_field_x:
+                sys.exit("The image " + baseName + " has a smaller x dimension than the imaging field")
+            if current_image.shape[1]<imaging_field_y:
+                sys.exit("The image " + baseName + " has a smaller y dimension than the imaging field")
+            if current_image.shape[2]!=nb_channels:
+                sys.exit("The image " + baseName + " has a different number of channels than indicated in the U-Net architecture")
             
-        imageFileList = [f for f in os.listdir(imglist_training_directory) if os.path.isfile(os.path.join(imglist_training_directory, f))]
+            channels_validation.append(process_image(np.asarray(current_image).astype('float32')))
+
+        imageFileList = [f for f in os.listdir(imglist_training_directory) if ('.png'  in f ) or ('.tif' in f) or ('tiff' in f)]
+        
         for imageFile in imageFileList:
             baseName = os.path.splitext(os.path.basename(imageFile))[0]
             
@@ -193,15 +387,26 @@ def get_data_sample(training_directory, validation_directory, nb_channels = 1, n
             elif os.path.exists(os.path.join(masklist_training_directory, baseName + ".tiff")):
                 maskPath = os.path.join(masklist_training_directory, baseName + ".tiff")
             else:
-                raise ValueError("The image " + imageFile + " does not have a corresponding mask file ending with png, tif or tiff")
+                sys.exit("The image " + imageFile + " does not have a corresponding mask file ending with png, tif or tiff")
+            
             current_mask_image = get_image(maskPath)
+            if current_mask_image.shape[0]<imaging_field_x:
+                sys.exit("The mask " + baseName + " has a smaller x dimension than the imaging field")
+            if current_mask_image.shape[1]<imaging_field_y:
+                sys.exit("The mask " + baseName + " has a smaller y dimension than the imaging field")
+            
             min_dimension = current_mask_image.shape[2]
             if min_dimension == 1:
-                current_mask = np.zeros((current_mask_image.shape[0], current_mask_image.shape[1], nb_classes), 'int32')
-                current_mask[: , :, (nb_classes-1)] = np.where(current_mask_image[:, :, 0] == 0, 1, 0)
-                for i in range(nb_classes):
-                    if i > 0:
-                        current_mask[: , :, i-1] = np.where(current_mask_image[:, :, 0] == i, 1, 0)
+                if nb_classes>2:
+                    current_mask = np.zeros((current_mask_image.shape[0], current_mask_image.shape[1], nb_classes), 'int32')
+                    current_mask[: , :, (nb_classes-1)] = np.where(current_mask_image[:, :, 0] == 0, 1, 0)
+                    for i in range(nb_classes):
+                        if i > 0:
+                            current_mask[: , :, i-1] = np.where(current_mask_image[:, :, 0] == i, 1, 0)
+                else:
+                    current_mask = np.zeros((current_mask_image.shape[0], current_mask_image.shape[1], nb_classes), 'int32')
+                    current_mask[: , :, 0] = np.where(current_mask_image[:, :, 0] == 0, 1, 0)
+                    current_mask[: , :, 1] = np.where(current_mask_image[:, :, 0] > 0, 1, 0)
             else:
                 current_mask = np.zeros((current_mask_image.shape[0], current_mask_image.shape[1], nb_classes), 'int32')
                 lastClass_mask = np.zeros((current_mask_image.shape[0], current_mask_image.shape[1]), 'int32')
@@ -211,41 +416,31 @@ def get_data_sample(training_directory, validation_directory, nb_channels = 1, n
                 if current_mask_image.shape[2] < nb_classes:
                     current_mask[: , :, (nb_classes-1)] = np.where(lastClass_mask == 0, 1, 0)
             
-            if np.sum(class_to_dilate) > 0:
-                for i in range(nb_classes):
-                    if class_to_dilate[i] == 1:
-                        strel = sk.morphology.disk(dil_radius)
-                        current_mask[: , :, i] = sk.morphology.binary_dilation(current_mask[: , :, i], selem = strel)
-                for i in range(nb_classes):
-                    if class_to_dilate[i] != 1:
-                        for k in range(nb_classes):
-                            if class_to_dilate[k] == 1:
-                                current_mask[:, :, i] -= current_mask[:, :, k]
-                        current_mask[:, :, i] = current_mask[:, :, i] > 0
             labels_training.append(current_mask.astype('int32'))
             
             imagePath = os.path.join(imglist_training_directory, imageFile)
             current_image = get_image(imagePath)
-            channels_training.append(current_image.astype('uint8'))
+            if current_image.shape[0]<imaging_field_x:
+                sys.exit("The image " + baseName + " has a smaller x dimension than the imaging field")
+            if current_image.shape[1]<imaging_field_y:
+                sys.exit("The image " + baseName + " has a smaller y dimension than the imaging field")
+            if current_image.shape[2]!=nb_channels:
+                sys.exit("The image " + baseName + " has a different number of channels than indicated in the U-Net architecture")
             
-            #image_to_add = np.zeros((current_mask_image.shape[1], current_mask_image.shape[2], nb_channels), 'int32')
-            #if nb_channels > 1:
-            #    if current_image.shape[0] == nb_channels:
-            #        for i in range(nb_channels):
-            #            image_to_add[:, :, i] = current_image[i, :, :]
-            #    else:
-            #        image_to_add = current_image
-            #else:
-            #    image_to_add = current_image
-            #channels_training.append(image_to_add.astype('uint8'))
+            channels_training.append(process_image(np.asarray(current_image).astype('float32')))
             
-    # splitting train data into train and validation
     else:
-        imageValFileList = [f for f in os.listdir(imglist_training_directory) if os.path.isfile(os.path.join(imglist_training_directory, f))]
+        imageValFileList = [f for f in os.listdir(imglist_training_directory) if ('.png'  in f ) or ('.tif' in f) or ('tiff' in f)]
         for imageFile in imageValFileList:
             baseName = os.path.splitext(os.path.basename(imageFile))[0]
             imagePath = os.path.join(imglist_training_directory, imageFile)
             current_image = get_image(imagePath)
+            if current_image.shape[0]<imaging_field_x:
+                sys.exit("The image " + baseName + " has a smaller x dimension than the imaging field")
+            if current_image.shape[1]<imaging_field_y:
+                sys.exit("The image " + baseName + " has a smaller y dimension than the imaging field")
+            if current_image.shape[2]!=nb_channels:
+                sys.exit("The image " + baseName + " has a different number of channels than indicated in the U-Net architecture")
             
             if os.path.exists(os.path.join(masklist_training_directory, baseName + ".png")):
                 maskPath = os.path.join(masklist_training_directory, baseName + ".png")
@@ -254,16 +449,25 @@ def get_data_sample(training_directory, validation_directory, nb_channels = 1, n
             elif os.path.exists(os.path.join(masklist_training_directory, baseName + ".tiff")):
                 maskPath = os.path.join(masklist_training_directory, baseName + ".tiff")
             else:
-                raise ValueError("The image " + imageFile + " does not have a corresponding mask file ending with png, tif or tiff")
+                sys.exit("The image " + imageFile + " does not have a corresponding mask file ending with png, tif or tiff")
             current_mask_image = get_image(maskPath)
+            if current_mask_image.shape[0]<imaging_field_x:
+                sys.exit("The mask " + baseName + " has a smaller x dimension than the imaging field")
+            if current_mask_image.shape[1]<imaging_field_y:
+                sys.exit("The mask " + baseName + " has a smaller y dimension than the imaging field")
 
             min_dimension = current_mask_image.shape[2]
             if min_dimension == 1:
-                current_mask = np.zeros((current_mask_image.shape[0], current_mask_image.shape[1], nb_classes), 'int32')
-                current_mask[: , :, (nb_classes-1)] = np.where(current_mask_image[:, :, 0] == 0, 1, 0)
-                for i in range(nb_classes):
-                    if i > 0:
-                        current_mask[: , :, i-1] = np.where(current_mask_image[:, :, 0] == i, 1, 0)
+                if nb_classes>2:
+                    current_mask = np.zeros((current_mask_image.shape[0], current_mask_image.shape[1], nb_classes), 'int32')
+                    current_mask[: , :, (nb_classes-1)] = np.where(current_mask_image[:, :, 0] == 0, 1, 0)
+                    for i in range(nb_classes):
+                        if i > 0:
+                            current_mask[: , :, i-1] = np.where(current_mask_image[:, :, 0] == i, 1, 0)
+                else:
+                    current_mask = np.zeros((current_mask_image.shape[0], current_mask_image.shape[1], nb_classes), 'int32')
+                    current_mask[: , :, 0] = np.where(current_mask_image[:, :, 0] == 0, 1, 0)
+                    current_mask[: , :, 1] = np.where(current_mask_image[:, :, 0] > 0, 1, 0)
             else:
                 current_mask = np.zeros((current_mask_image.shape[0], current_mask_image.shape[1], nb_classes), 'int32')
                 lastClass_mask = np.zeros((current_mask_image.shape[0], current_mask_image.shape[1]), 'int32')
@@ -273,47 +477,36 @@ def get_data_sample(training_directory, validation_directory, nb_channels = 1, n
                 if current_mask_image.shape[2] < nb_classes:
                     current_mask[: , :, (nb_classes-1)] = np.where(lastClass_mask == 0, 1, 0)
                     
-            if np.sum(class_to_dilate) > 0:
-                for i in range(nb_classes):
-                    if class_to_dilate[i] == 1:
-                        strel = sk.morphology.disk(dil_radius)
-                        current_mask[: , :, i] = sk.morphology.binary_dilation(current_mask[: , :, i], selem = strel)
-                for i in range(nb_classes):
-                    if class_to_dilate[i] != 1:
-                        for k in range(nb_classes):
-                            if class_to_dilate[k] == 1:
-                                current_mask[:, :, i] -= current_mask[:, :, k]
-                        current_mask[:, :, i] = current_mask[:, :, i] > 0
         
-            if random.Random().random() > validationTrainingRatio:
-                channels_training.append(current_image.astype('uint8'))
+            if random.Random().random() > validation_training_ratio:
+                channels_training.append(process_image(np.asarray(current_image).astype('float32')))
                 labels_training.append(current_mask.astype('int32'))
             else:
-                channels_validation.append(current_image.astype('uint8'))
+                channels_validation.append(process_image(np.asarray(current_image).astype('float32')))
                 labels_validation.append(current_mask.astype('int32'))
 
                 
     if len(channels_training) < 1:
-        raise ValueError("Empty train image list")
+        sys.exit("Empty train image list")
 
     #just to be non-empty
     if len(channels_validation) < 1:
         channels_validation += channels_training[len(channels_training)-1]
         labels_validation += channels_validation[len(channels_validation)-1]
     
-    X_test = np.asarray(channels_validation).astype('float32')
-    for k in range(X_test.shape[0]):
-        #for j in range(X_test.shape[-1]):
-        X_test[k,:,:,:] = process_image(X_test[k,:,:,:], dim_norm1, dim_norm2)
-    X_test = X_test[:,0:imaging_field_x,0:imaging_field_y,:]
-    Y_test = np.asarray(labels_validation)[:,0:imaging_field_x,0:imaging_field_y,:]
     
-    train_dict = {"channels": np.asarray(channels_training), "labels": np.asarray(labels_training)}
+    X_test = channels_validation
+    Y_test =[]
+    for k in range(len(X_test)):
+        X_test[k] = X_test[k][0:imaging_field_x, 0:imaging_field_y, :]
+        Y_test.append(labels_validation[k][0:imaging_field_x, 0:imaging_field_y, :])
+        
+    train_dict = {"channels": channels_training, "labels": labels_training}
 
     return train_dict, (np.asarray(X_test).astype('float32'), np.asarray(Y_test).astype('int32'))
 
 
-def random_sample_generator(x_init, y_init, batch_size, n_channels, n_classes, dim1, dim2, dim_norm1, dim_norm2):
+def random_sample_generator(x_init, y_init, batch_size, n_channels, n_classes, dim1, dim2):
 
     cpt = 0
 
@@ -324,68 +517,68 @@ def random_sample_generator(x_init, y_init, batch_size, n_channels, n_classes, d
     while(True):
 
         # buffers for a batch of data
-        x = np.zeros((batch_size, dim1, dim2, n_channels))
-        y = np.zeros((batch_size, dim1, dim2, n_classes))
+        x = np.zeros((batch_size, dim1, dim2, n_channels), 'float32')
+        y = np.zeros((batch_size, dim1, dim2, n_classes), 'int32')
         
         for k in range(batch_size):
 
             # get random image
-            if cpt == n_images:
-                cpt = 0
-            img_index = arr[cpt]
+            img_index = arr[cpt%n_images]
 
             # open images
             x_big = x_init[img_index]
             y_big = y_init[img_index]
 
             # get random crop
-            start_dim1 = np.random.randint(low=0, high=x_big.shape[0] - dim1)
-            start_dim2 = np.random.randint(low=0, high=x_big.shape[1] - dim2)
+            if dim1==x_big.shape[0]:
+                start_dim1 = 0
+            else:
+                start_dim1 = np.random.randint(low=0, high=x_big.shape[0] - dim1)
+            if dim2==x_big.shape[1]:
+                start_dim2 = 0
+            else:
+                start_dim2 = np.random.randint(low=0, high=x_big.shape[1] - dim2)
 
             patch_x = x_big[start_dim1:start_dim1 + dim1, start_dim2:start_dim2 + dim2, :]
             patch_y = y_big[start_dim1:start_dim1 + dim1, start_dim2:start_dim2 + dim2, :]
             patch_x = np.asarray(patch_x)
             patch_y = np.asarray(patch_y)
-            patch_y = patch_y.astype('int32')
-
-            # image normalization
-            patch_x = patch_x.astype('float32')
-            #for j in range(patch_x.shape[-1]):
-            patch_x = process_image(patch_x, dim_norm1, dim_norm2)
 
             # save image to buffer
             x[k, :, :, :] = patch_x
             y[k, :, :, :] = patch_y
             cpt += 1
+            
+
         # return the buffer
         yield(x, y)
 
-
+        
 def GenerateRandomImgaugAugmentation(
-        pAugmentationLevel=9,           # number of augmentations
+        pAugmentationLevel=5,           # number of augmentations
         pEnableFlipping1=True,          # enable x flipping
         pEnableFlipping2=True,          # enable y flipping
         pEnableRotation90=True,           # enable rotation
-        pEnableRotation=True,           # enable rotation
+        pEnableRotation=False,           # enable rotation
         pMaxRotationDegree=15,             # maximum rotation degree
-        pEnableShearX=True,             # enable x shear
-        pEnableShearY=True,             # enable y shear
+        pEnableShearX=False,             # enable x shear
+        pEnableShearY=False,             # enable y shear
         pMaxShearDegree=15,             # maximum shear degree
-        pEnableDropOut=True,            # enable pixel dropout
-        pMaxDropoutPercentage=0.1,     # maximum dropout percentage
         pEnableBlur=True,               # enable gaussian blur
-        pBlurSigma=.25,                  # maximum sigma for gaussian blur
-        pEnableSharpness=True,          # enable sharpness
-        pSharpnessFactor=0.1,           # maximum additional sharpness
-        pEnableEmboss=True,             # enable emboss
-        pEmbossFactor=0.1,              # maximum emboss
-        pEnableBrightness=True,         # enable brightness
-        pBrightnessFactor=0.1,         # maximum +- brightness
+        pBlurSigma=.5,                  # maximum sigma for gaussian blur
+        pEnableDropOut=True,
+        pMaxDropoutPercentage=0.01,
+        pEnableSharpness=False,          # enable sharpness
+        pSharpnessFactor=0.0001,           # maximum additional sharpness
+        pEnableEmboss=False,             # enable emboss
+        pEmbossFactor=0.0001,              # maximum emboss
+        pEnableBrightness=False,         # enable brightness
+        pBrightnessFactor=0.000001,         # maximum +- brightness
         pEnableRandomNoise=True,        # enable random noise
-        pMaxRandomNoise=0.1,           # maximum random noise strength
-        pEnableInvert=True,             # enables color invert
+        pMaxRandomNoise=0.01,           # maximum random noise strength
+        pEnableInvert=False,             # enables color invert
         pEnableContrast=True,           # enable contrast change
-        pContrastFactor=0.1,            # maximum +- contrast
+        pContrastFactor=0.01,            # maximum +- contrast
 ):
     
     augmentationMap = []
@@ -486,18 +679,19 @@ def GenerateRandomImgaugAugmentation(
     return iaa.Sequential(augmentationMapOutput)
 
 
-def random_sample_generator_dataAugmentation(x_init, y_init, batch_size, n_channels, n_classes, dim1, dim2, dim_norm1, dim_norm2):
+def random_sample_generator_dataAugmentation(x_init, y_init, batch_size, n_channels, n_classes, dim1, dim2, nb_augmentations):
 
     cpt = 0
     n_images = len(x_init)
     arr = np.arange(n_images)
     np.random.shuffle(arr)
+    non_augmented_array = np.zeros(n_images)
 
     while(True):
 
         # buffers for a batch of data
-        x = np.zeros((batch_size, dim1, dim2, n_channels))
-        y = np.zeros((batch_size, dim1, dim2, n_classes))
+        x = np.zeros((batch_size, dim1, dim2, n_channels), 'float32')
+        y = np.zeros((batch_size, dim1, dim2, n_classes), 'int32')
         
         for k in range(batch_size):
             
@@ -511,22 +705,35 @@ def random_sample_generator_dataAugmentation(x_init, y_init, batch_size, n_chann
             # augmentation
             segmap = SegmentationMapsOnImage(y_big, shape=x_big.shape)
             augmentationMap = GenerateRandomImgaugAugmentation()
+
             x_aug, segmap = augmentationMap(image=x_big, segmentation_maps=segmap)
             y_aug = segmap.get_arr()
             
             # image normalization
-            x_norm = x_aug.astype('float32')
-            #for j in range(x_norm.shape[-1]):
-            x_norm = process_image(x_norm, dim_norm1, dim_norm2)
-                
-            # get random crop
-            start_dim1 = np.random.randint(low=0, high=x_big.shape[0] - dim1)
-            start_dim2 = np.random.randint(low=0, high=x_big.shape[1] - dim2)
+            x_norm = x_aug
 
-            patch_x = x_norm[start_dim1:start_dim1 + dim1, start_dim2:start_dim2 + dim2, :]
+            # get random crop
+            if dim1==x_big.shape[0]:
+                start_dim1 = 0
+            else:
+                start_dim1 = np.random.randint(low=0, high=x_big.shape[0] - dim1)
+            if dim2==x_big.shape[1]:
+                start_dim2 = 0
+            else:
+                start_dim2 = np.random.randint(low=0, high=x_big.shape[1] - dim2)
+
+            # non augmented image
+            if non_augmented_array[cpt%n_images]==0:
+                if random.Random().random() < (2./nb_augmentations):
+                    non_augmented_array[cpt%n_images] = 1
+                    x_aug = x_big
+                    y_aug = y_big
+                    
+            patch_x = x_aug[start_dim1:start_dim1 + dim1, start_dim2:start_dim2 + dim2, :]
             patch_y = y_aug[start_dim1:start_dim1 + dim1, start_dim2:start_dim2 + dim2, :]
-            patch_x = np.asarray(patch_x)
-            patch_y = np.asarray(patch_y)
+            
+            patch_x = patch_x
+            patch_y = patch_y
 
             # save image to buffer
             x[k, :, :, :] = patch_x
@@ -535,6 +742,7 @@ def random_sample_generator_dataAugmentation(x_init, y_init, batch_size, n_chann
 
             cpt += 1
         
+
         # return the buffer
         yield(x, y)
 
@@ -542,10 +750,9 @@ def random_sample_generator_dataAugmentation(x_init, y_init, batch_size, n_chann
 """
 Training convnets
 """
-def weighted_crossentropy_3classes(weight1, weight2, weight3):
+def weighted_crossentropy(class_weights):
 
     def func(y_true, y_pred):
-        class_weights = ([[[[weight1, weight2, weight3]]]])
         unweighted_losses = tf.nn.softmax_cross_entropy_with_logits_v2(labels=y_true, logits=y_pred)
         weights = tf.reduce_sum(class_weights * y_true, axis=-1)
         weighted_losses = weights * unweighted_losses
@@ -553,18 +760,23 @@ def weighted_crossentropy_3classes(weight1, weight2, weight3):
 
     return func
 
-
 def train_model_sample(model = None, dataset_training = None,  dataset_validation = None,
-                       optimizer = None, expt = "", batch_size = 5, n_epoch = 100, 
+                       model_name = "model", batch_size = 5, n_epoch = 100, 
                        imaging_field_x = 256, imaging_field_y = 256, 
-                       direc_save = "./trained_classifiers/",
-                       lr_sched = rate_scheduler(lr = 0.01, decay = 0.95), nb_augmentations = 1, 
-                       normalizing_window_size_x = 64, normalizing_window_size_y = 64,
-                       validationTrainingRatio = 0.1, class_to_dilate = [0,0,0], dil_radius = 1):
+                       output_dir = "./trained_classifiers/", saved_model = True,
+                       learning_rate = 1e-3, nb_augmentations = 0,
+                       train_to_val_ratio = 0.2):
 
-    todays_date = datetime.datetime.now().strftime("%Y-%m-%d")
-    file_name_save = os.path.join(direc_save, todays_date + "_" + expt + ".h5")
-    file_name_save_loss = os.path.join(direc_save, todays_date + "_" + expt + ".npz")
+    if dataset_training is None:
+        sys.exit("The input training dataset needs to be defined")
+    if output_dir is None:
+        sys.exit("The output directory for trained classifier needs to be defined")
+   
+    os.makedirs(name=output_dir, exist_ok=True)
+    file_name_save = os.path.join(output_dir, model_name + ".h5")
+    logdir = "logs/scalars/" + model_name + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    tensorboard_callback = TensorBoard(log_dir=logdir)
+
 
     # determine the number of channels and classes
     input_shape = model.layers[0].output_shape
@@ -572,34 +784,69 @@ def train_model_sample(model = None, dataset_training = None,  dataset_validatio
     output_shape = model.layers[-1].output_shape
     n_classes = output_shape[-1]
 
-    train_dict, (X_test, Y_test) = get_data_sample(dataset_training, dataset_validation, nb_channels = n_channels, nb_classes = n_classes, imaging_field_x = imaging_field_x, imaging_field_y = imaging_field_y, nb_augmentations = nb_augmentations, dim_norm1 = normalizing_window_size_x, dim_norm2 = normalizing_window_size_y,  validationTrainingRatio = 0.1, class_to_dilate = class_to_dilate, dil_radius = dil_radius)
+    train_dict, (X_test, Y_test) = get_data_sample(dataset_training, dataset_validation, nb_channels = n_channels, nb_classes = n_classes, imaging_field_x = imaging_field_x, imaging_field_y = imaging_field_y, nb_augmentations = nb_augmentations, validation_training_ratio = train_to_val_ratio)
 
     # data information (one way for the user to check if the training dataset makes sense)
-    print(train_dict["channels"].shape[0], 'training images')
-    print(X_test.shape[0], 'validation images')
+    print((nb_augmentations+1)*len(train_dict["channels"]), 'training images')
+    print(len(X_test), 'validation images')
 
     # determine the weights for the weighted cross-entropy based on class distribution for training dataset
-    w1 = max(np.sum(train_dict['labels'][:,:,:,0]), np.sum(train_dict['labels'][:,:,:,1]), np.sum(train_dict['labels'][:,:,:,2])) / np.sum(train_dict['labels'][:,:,:,0])
-    w2 = max(np.sum(train_dict['labels'][:,:,:,0]), np.sum(train_dict['labels'][:,:,:,1]), np.sum(train_dict['labels'][:,:,:,2])) / np.sum(train_dict['labels'][:,:,:,1])
-    w3 = max(np.sum(train_dict['labels'][:,:,:,0]), np.sum(train_dict['labels'][:,:,:,1]), np.sum(train_dict['labels'][:,:,:,2])) / np.sum(train_dict['labels'][:,:,:,2])
+    class_weights = np.zeros((n_classes))
+    max_number = 0
+    class_weights_sum = np.zeros((n_classes))
+    for i in range(n_classes):
+        for k in range(len(train_dict['labels'])):
+            class_weights_sum[i] += np.sum(train_dict['labels'][k][:, :, i])
+    for i in range(n_classes):
+        if class_weights_sum[i] > max_number:
+            max_number = class_weights_sum[i]
+    for i in range(n_classes):
+        class_weights[i] = max_number / max( class_weights_sum[i], 1.)
 
     # prepare the model compilation
-    model.compile(loss = weighted_crossentropy_3classes(weight1 = w1, weight2 = w2, weight3 = w3), optimizer = optimizer, metrics=['accuracy'])
+    optimizer = RMSprop(lr=learning_rate)
+    model.compile(loss = weighted_crossentropy(class_weights = class_weights), optimizer = optimizer, metrics=['accuracy'])
 
     # prepare the generation of data
-    if nb_augmentations == 1:
-        train_generator = random_sample_generator(train_dict["channels"], train_dict["labels"], batch_size, n_channels, n_classes, imaging_field_x, imaging_field_x, normalizing_window_size_x, normalizing_window_size_y) 
+    if nb_augmentations == 0:
+        train_generator = random_sample_generator(train_dict["channels"], train_dict["labels"], batch_size, n_channels, n_classes, imaging_field_x, imaging_field_y) 
     else:
-        train_generator = random_sample_generator_dataAugmentation(train_dict["channels"], train_dict["labels"], batch_size, n_channels, n_classes, imaging_field_x, imaging_field_x, normalizing_window_size_x, normalizing_window_size_y) 
+        train_generator = random_sample_generator_dataAugmentation(train_dict["channels"], train_dict["labels"], batch_size, n_channels, n_classes, imaging_field_x, imaging_field_y, nb_augmentations) 
         
     # fit the model
+    lr_sched = rate_scheduler(lr = learning_rate, decay = 0.95)
     loss_history = model.fit_generator(train_generator,
-                                       steps_per_epoch = int(nb_augmentations*len(train_dict["labels"])/batch_size), 
+                                       steps_per_epoch = int((nb_augmentations+1)*len(train_dict["labels"])/batch_size), 
                                        epochs=n_epoch, validation_data=(X_test,Y_test), 
-                                       callbacks = [ModelCheckpoint(file_name_save, monitor = 'val_loss', verbose = 0, save_best_only = True, mode = 'auto',save_weights_only = True),LearningRateScheduler(lr_sched)])
+                                       callbacks = [ModelCheckpoint(file_name_save, monitor = 'val_loss', verbose = 0, save_best_only = True, mode = 'auto',save_weights_only = True),LearningRateScheduler(lr_sched),tensorboard_callback])
     
-    np.savez(file_name_save_loss, loss_history = loss_history.history)
+    if saved_model==True:
+        save_path = os.path.join(output_dir, model_name)
+        tmp_path = tempfile.TemporaryDirectory()
 
+        signature = tf.saved_model.signature_def_utils.predict_signature_def(inputs={'image': model.input}, outputs={'scores': model.output})
+        builder = tf.saved_model.builder.SavedModelBuilder(os.path.abspath(tmp_path.name))
+        builder.add_meta_graph_and_variables(
+            sess=K.get_session(),
+            tags=[tf.saved_model.tag_constants.SERVING],
+            signature_def_map={
+                tf.saved_model.signature_constants.DEFAULT_SERVING_SIGNATURE_DEF_KEY:
+                signature
+            })
+    
+        verbose = builder.save()
+        verbose = shutil.copytree(tmp_path.name, save_path)
+        verbose = shutil.make_archive(save_path, "zip", save_path, "./")
+        for filename in os.listdir(save_path):
+            file_path = os.path.join(save_path, filename)
+            try:
+                if os.path.isfile(file_path) or os.path.islink(file_path):
+                    os.unlink(file_path)
+                elif os.path.isdir(file_path):
+                    shutil.rmtree(file_path)
+            except Exception as e:
+                print('Failed to delete %s. Reason: %s' % (file_path, e))
+        shutil.rmtree(save_path)
 
 
 """
@@ -607,37 +854,49 @@ Executing convnets
 """
 
 def get_image_sizes(data_location):
+    width = 256
+    height = 256
+    nb_channels = 1
     img_list = []
     img_list += [getfiles(data_location)]
     img_temp = get_image(os.path.join(data_location, img_list[0][0]))
-
-    return img_temp.shape[0], img_temp.shape[1]
+    if len(img_temp.shape)>2:
+        if img_temp.shape[0]<img_temp.shape[2]:
+            nb_channels = img_temp.shape[0]
+            width = img_temp.shape[1]
+            height=img_temp.shape[2]
+        else:
+            nb_channels = img_temp.shape[2]
+            width = img_temp.shape[0]
+            height=img_temp.shape[1]
+    else:
+        width = img_temp.shape[0]
+        height=img_temp.shape[1]
+    return width, height, nb_channels
 
 def get_images_from_directory(data_location):
     img_list = []
     img_list += [getfiles(data_location)]
 
-    img_temp = get_image(os.path.join(data_location, img_list[0][0]))
-    
     all_images = []
     for stack_iteration in range(len(img_list[0])):
-        all_channels = np.zeros((1, img_temp.shape[0], img_temp.shape[1], img_temp.shape[2]), dtype = 'float32')
         current_img = get_image(os.path.join(data_location, img_list[0][stack_iteration]))
+        all_channels = np.zeros((1, current_img.shape[0], current_img.shape[1], current_img.shape[2]), dtype = 'float32')
         all_channels[0, :, :, :] = current_img
         all_images += [all_channels]
-        
+            
     return all_images
 
-def run_model(img, model, imaging_field_x = 256, imaging_field_y = 256, normalizing_window_size_x = 64, normalizing_window_size_y = 64):
+def run_model(img, model, imaging_field_x = 256, imaging_field_y = 256):
     
-    img[0, :, :, :] = process_image(img[0, :, :, :], normalizing_window_size_x, normalizing_window_size_y)
+    img[0, :, :, :] = process_image(img[0, :, :, :])
     img = np.pad(img, pad_width = [(0,0), (5,5), (5,5), (0,0)], mode = 'reflect')
             
     n_classes = model.layers[-1].output_shape[-1]
     image_size_x = img.shape[1]
     image_size_y = img.shape[2]
-    model_output = np.zeros((image_size_x-10,image_size_y-10,n_classes), dtype = np.float32)
-    current_output = np.zeros((1,imaging_field_x,imaging_field_y,n_classes), dtype = np.float32)
+    model_output = np.zeros((image_size_x-10,image_size_y-10,n_classes))
+    current_output = np.zeros((1,imaging_field_x,imaging_field_y,n_classes))
     
     x_iterator = 0
     y_iterator = 0
@@ -665,8 +924,11 @@ def run_model(img, model, imaging_field_x = 256, imaging_field_y = 256, normaliz
     return model_output
 
 
-def run_models_on_directory(data_location, output_location, model, normalizing_window_size_x = 64, normalizing_window_size_y = 64):
+def run_models_on_directory(data_location, output_location, model, score):
 
+    # create output folder if it doesn't exist
+    os.makedirs(name=output_location, exist_ok=True)
+    
     # determine the number of channels and classes as well as the imaging field dimensions
     input_shape = model.layers[0].output_shape
     n_channels = input_shape[-1]
@@ -674,26 +936,44 @@ def run_models_on_directory(data_location, output_location, model, normalizing_w
     imaging_field_y = input_shape[2]
     output_shape = model.layers[-1].output_shape
     n_classes = output_shape[-1]
-
+    
     # determine the image size
-    image_size_x, image_size_y = get_image_sizes(data_location)
+    image_size_x, image_size_y, nb_channels = get_image_sizes(data_location)
+    
+    if image_size_x<imaging_field_x:
+        sys.exit("The input image has a smaller x dimension than the imaging field")
+    if image_size_y<imaging_field_y:
+        sys.exit("The input image has a smaller y dimension than the imaging field")
+    if n_channels!=nb_channels:
+        sys.exit("The input image has a different number of channels than indicated in the U-Net architecture")
+
 
     # process images
     counter = 0
     img_list_files = [getfiles(data_location)]
 
     image_list = get_images_from_directory(data_location)
-    processed_image_list = []
 
     for img in image_list:
         print("Processing image ",str(counter + 1)," of ",str(len(image_list)))
-        processed_image = run_model(img, model, imaging_field_x = imaging_field_x, imaging_field_y = imaging_field_y, normalizing_window_size_x = normalizing_window_size_x, normalizing_window_size_y = normalizing_window_size_y)
-        processed_image_list += [processed_image]
+        processed_image = run_model(img, model, imaging_field_x = imaging_field_x, imaging_field_y = imaging_field_y)
         
-        # Save images
-        cnnout_name = os.path.join(output_location, os.path.splitext(img_list_files[0][counter])[0] + ".tiff")
-        tiff.imsave(cnnout_name, processed_image)
+        if score==False:
+            output_image = np.zeros((processed_image.shape[2], processed_image.shape[0], processed_image.shape[1]), np.uint8)
+            max_channels = np.argmax(processed_image, axis=2)
+            for i in range(output_image.shape[0]):
+                output_image[i-1, : , :] = np.where(max_channels == i, 255, 0)
+            # Save images
+            cnnout_name = os.path.join(output_location, os.path.splitext(img_list_files[0][counter])[0] + ".tiff")
+            tiff.imsave(cnnout_name, output_image)
+        else:
+            # Save images
+            output_image = np.zeros((processed_image.shape[2], processed_image.shape[0], processed_image.shape[1]))
+            for i in range(processed_image.shape[2]):
+                output_image[i, : , :] = processed_image[: , :, i]
+            # Save images
+            cnnout_name = os.path.join(output_location, os.path.splitext(img_list_files[0][counter])[0] + ".tiff")
+            tiff.imsave(cnnout_name, output_image)
+
 
         counter += 1
-
-    return processed_image_list

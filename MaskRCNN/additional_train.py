@@ -1,69 +1,69 @@
+# This program is free software; you can redistribute it and/or modify it under the terms of the GNU Affero General Public License version 3 as published by the Free Software Foundation:
+# http://www.gnu.org/licenses/agpl-3.0.txt
+############################################################
+
 import sys
 import json
 import os
 import os.path
 import numpy
 import mrcnn_model
-import visualize
 import mrcnn_utils
 import mask_rcnn_additional
 import random
+import tensorflow
+
+from tensorflow.compat.v1 import ConfigProto
+from tensorflow.compat.v1 import InteractiveSession
 
 class MaskTrain:
     __mParams = {}
 
-    def __init__(self, train_dir, eval_dir, input_model, output_model, epoch_groups, blank_mrcnn = True, step_ratio = 1.0, show_inputs = False, random_augmentation_level = 100, train_to_val_seed = 0, train_to_val_ratio = 0.0, use_eval_in_val = True, detection_nms_threshold = 0.35, rpn_nms_threshold = 0.65, image_size = 1024):
+    def __init__(self, train_dir, eval_dir, input_model, output_dir, model_name, epoch_groups, random_augmentation_level = 100, train_to_val_seed = 0, train_to_val_ratio = 0.0, use_eval_in_val = True, detection_nms_threshold = 0.35, rpn_nms_threshold = 0.65, image_size = 1024):
         self.__mParams["train_dir"] = train_dir
         self.__mParams["eval_dir"] = eval_dir
         self.__mParams["input_model"] = input_model
-        self.__mParams["output_model"] = output_model
+        self.__mParams["output_dir"] = output_dir
+        self.__mParams["model_name"] = model_name
         self.__mParams["epoch_groups"] = epoch_groups
-        self.__mParams["blank_mrcnn"] = blank_mrcnn
-        self.__mParams["step_ratio"] = step_ratio
-        self.__mParams["show_inputs"] = show_inputs
         self.__mParams["random_augmentation_level"] = random_augmentation_level
-        self.__mParams["train_to_val_seed"] = train_to_val_seed
         self.__mParams["train_to_val_ratio"] = train_to_val_ratio
-        self.__mParams["use_eval_in_val"] = use_eval_in_val
         self.__mParams["detection_nms_threshold"] = detection_nms_threshold
         self.__mParams["rpn_nms_threshold"] = rpn_nms_threshold
         self.__mParams["image_size"] = image_size
         
 
     def Train(self):
-        fixedRandomSeed = None
+        config = ConfigProto()
+        config.gpu_options.allow_growth = True
+        session = InteractiveSession(config=config)
+
+        fixedRandomSeed = 0
         trainToValidationChance = 0.2
         includeEvaluationInValidation = True
-        stepMultiplier = None
+        stepMultiplier = 1.0
         stepCount = 1000
         showInputs = False
         augmentationLevel = 0
         detNMSThresh = 0.35
         rpnNMSThresh = 0.55
         trainDir = os.path.join(os.curdir, self.__mParams["train_dir"])
-        evalDir = os.path.join(os.curdir, self.__mParams["eval_dir"])
         inModelPath = os.path.join(os.curdir, self.__mParams["input_model"])
-        outModelPath = os.path.join(os.curdir, self.__mParams["output_model"])
-        blankInput = self.__mParams["blank_mrcnn"]
-        maxdim = 1024
+        os.makedirs(name=self.__mParams["output_dir"], exist_ok=True)
+        outModelPath = os.path.join(self.__mParams["output_dir"], self.__mParams["model_name"] + ".h5")
 
-        if "eval_dir" in self.__mParams:
+        blankInput = True
+
+        if self.__mParams["eval_dir"]!=None:
             evalDir = os.path.join(os.curdir, self.__mParams["eval_dir"])
+        else:
+            evalDir = None
 
         if "image_size" in self.__mParams:
             maxdim = self.__mParams["image_size"]
 
-        if "train_to_val_seed" in self.__mParams:
-            fixedRandomSeed = self.__mParams["train_to_val_seed"]
-
         if "train_to_val_ratio" in self.__mParams:
             trainToValidationChance = self.__mParams["train_to_val_ratio"]
-
-        if "use_eval_in_val" in self.__mParams:
-            includeEvaluationInValidation = self.__mParams["use_eval_in_val"]
-
-        if "step_ratio" in self.__mParams:
-            stepMultiplier = self.__mParams["step_ratio"]
 
         if "step_num" in self.__mParams:
             stepCount = self.__mParams["step_num"]
@@ -79,8 +79,7 @@ class MaskTrain:
 
         if "rpn_nms_threshold" in self.__mParams:
             rpnNMSThresh = self.__mParams["rpn_nms_threshold"]
-
-
+            
 
         rnd = random.Random()
         rnd.seed(fixedRandomSeed)
@@ -102,7 +101,14 @@ class MaskTrain:
             for imageFile in imageValFileList:
                 baseName = os.path.splitext(os.path.basename(imageFile))[0]
                 imagePath = os.path.join(imagesValDir, imageFile)
-                maskPath = os.path.join(masksValDir, baseName + ".tiff")
+                if os.path.exists(os.path.join(masksValDir, baseName + ".png")):
+                    maskPath = os.path.join(masksValDir, baseName + ".png")
+                elif os.path.exists(os.path.join(masksValDir, baseName + ".tif")):
+                    maskPath = os.path.join(masksValDir, baseName + ".tif")
+                elif os.path.exists(os.path.join(masksValDir, baseName + ".tiff")):
+                    maskPath = os.path.join(masksValDir, baseName + ".tiff")
+                else:
+                    sys.exit("The image " + imageFile + " does not have a corresponding mask file ending with png, tif or tiff")
                 if not os.path.isfile(imagePath) or not os.path.isfile(maskPath):
                     continue
                 validationImagesAndMasks[imagePath] = maskPath
@@ -110,7 +116,14 @@ class MaskTrain:
             for imageFile in imageFileList:
                 baseName = os.path.splitext(os.path.basename(imageFile))[0]
                 imagePath = os.path.join(imagesDir, imageFile)
-                maskPath = os.path.join(masksDir, baseName + ".tiff")
+                if os.path.exists(os.path.join(masksDir, baseName + ".png")):
+                    maskPath = os.path.join(masksDir, baseName + ".png")
+                elif os.path.exists(os.path.join(masksDir, baseName + ".tif")):
+                    maskPath = os.path.join(masksDir, baseName + ".tif")
+                elif os.path.exists(os.path.join(masksDir, baseName + ".tiff")):
+                    maskPath = os.path.join(masksDir, baseName + ".tiff")
+                else:
+                    sys.exit("The image " + imageFile + " does not have a corresponding mask file ending with png, tif or tiff")
                 if not os.path.isfile(imagePath) or not os.path.isfile(maskPath):
                     continue
                 trainImagesAndMasks[imagePath] = maskPath
@@ -120,7 +133,14 @@ class MaskTrain:
             for imageFile in imageFileList:
                 baseName = os.path.splitext(os.path.basename(imageFile))[0]
                 imagePath = os.path.join(imagesDir, imageFile)
-                maskPath = os.path.join(masksDir, baseName + ".tiff")
+                if os.path.exists(os.path.join(masksDir, baseName + ".png")):
+                    maskPath = os.path.join(masksDir, baseName + ".png")
+                elif os.path.exists(os.path.join(masksDir, baseName + ".tif")):
+                    maskPath = os.path.join(masksDir, baseName + ".tif")
+                elif os.path.exists(os.path.join(masksDir, baseName + ".tiff")):
+                    maskPath = os.path.join(masksDir, baseName + ".tiff")
+                else:
+                    sys.exit("The image " + imageFile + " does not have a corresponding mask file ending with png, tif or tiff")
                 if not os.path.isfile(imagePath) or not os.path.isfile(maskPath):
                     continue
                 if rnd.random() > trainToValidationChance:
@@ -129,7 +149,7 @@ class MaskTrain:
                     validationImagesAndMasks[imagePath] = maskPath
 
         if len(trainImagesAndMasks) < 1:
-            raise ValueError("Empty train image list")
+            sys.exit("Empty train image list")
 
         #just to be non-empty
         if len(validationImagesAndMasks) < 1:
@@ -162,24 +182,11 @@ class MaskTrain:
         config.DETECTION_NMS_THRESHOLD = detNMSThresh
         config.RPN_NMS_THRESHOLD = rpnNMSThresh
         config.MAX_GT_INSTANCES = 512
+        config.BATCH_SIZE = 5000
         config.__init__()
-        # show config
-        #config.display()
         
-        if showInputs:
-            # Load and display random samples
-            image_ids = numpy.random.choice(dataset_train.image_ids, 20)
-            for imageId in image_ids:
-                image = dataset_train.load_image(imageId)
-                mask, class_ids = dataset_train.load_mask(imageId)
-                # visualize.display_top_masks(image, mask, class_ids, dataset_train.class_names)
-                visualize.display_instances(image=image, masks=mask, class_ids=class_ids,
-                                            title=dataset_train.image_reference(imageId),
-                                            boxes=mrcnn_utils.extract_bboxes(mask), class_names=dataset_train.class_names)
-
         # Create model in training mode
         mdl = mrcnn_model.MaskRCNN(mode="training", config=config, model_dir=os.path.dirname(outModelPath))
-        #mdl.keras_model.summary()
         
         if blankInput:
             mdl.load_weights(inModelPath, by_name=True,
@@ -188,15 +195,13 @@ class MaskTrain:
             mdl.load_weights(inModelPath, by_name=True)
 
         allcount = 0
+        logdir = "logs/scalars/" + self.__mParams["model_name"]
         for epochgroup in self.__mParams["epoch_groups"]:
             epochs = int(epochgroup["epochs"])
             if epochs < 1:
                 continue
             allcount += epochs
-            mdl.train(dataset_train,
-                      dataset_val,
-                      learning_rate=float(epochgroup["learning_rate"]),
-                      epochs=allcount,
-                      layers=epochgroup["layers"])
+            mdl.train(dataset_train,dataset_val,learning_rate=float(epochgroup["learning_rate"]), epochs=allcount,layers=epochgroup["layers"])
 
         mdl.keras_model.save_weights(outModelPath)
+        

@@ -4,6 +4,11 @@ These Jupyter notebooks allow to use 5 different deep learning architectures (Ma
 
 Marker identification is also performed using an Inception-V3 architecture.
 
+# Video tutorial
+Video tutorials are available for:
+[Software installation for Windows](https://www.youtube.com/watch?v=EkFdh9dCQds)
+[Software installation for macOS](https://www.youtube.com/watch?v=y6C9f1jJr5k)
+
 # Thanks to a Third Party Lib
 [Mask R-CNN](https://github.com/matterport/Mask_RCNN) <br>
 [biomagdsb](https://github.com/spreka/biomagdsb)

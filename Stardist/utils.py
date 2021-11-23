@@ -84,7 +84,7 @@ def training_parameters_stardist_interface(nb_trainings):
         validation_dir[i] = FileChooser('./datasets')
         display(validation_dir[i])
         print('\x1b[1m'+"Output directory")
-        output_dir[i] = FileChooser('./trainedClassifiers')
+        output_dir[i] = FileChooser('./models')
         display(output_dir[i])
 
         label_layout = Layout(width='180px',height='30px')
@@ -139,14 +139,14 @@ def running_parameters_stardist_interface(nb_trainings):
         print('\x1b[1m'+"Input directory")
         input_dir[i] = FileChooser('./datasets')
         display(input_dir[i])
-        print('\x1b[1m'+"Input classifier")
-        input_classifier[i] = FileChooser('./trainedClassifiers')
+        print('\x1b[1m'+"Input model")
+        input_classifier[i] = FileChooser('./models')
         display(input_classifier[i])
         print('\x1b[1m'+"Output directory")
         output_dir[i] = FileChooser('./datasets')
         display(output_dir[i])
 
-        label_layout = Layout(width='180px',height='30px')
+        label_layout = Layout(width='220px',height='30px')
 
         prob_th[i] = HBox([Label('Probability threshold:', layout=label_layout), widgets.FloatText(
             value=0.65, description='', disabled=False)])
@@ -174,7 +174,7 @@ def training_Stardist(nb_trainings, parameters):
         if parameters[0][i].selected==None:
             sys.exit("Training #"+str(i+1)+": You need to select an input directory for training")
         if parameters[2][i].selected==None:
-            sys.exit("Training #"+str(i+1)+": You need to select an output directory for the trained classifier")
+            sys.exit("Training #"+str(i+1)+": You need to select an output directory for the trained model")
     
         
         if parameters[6][i].children[1].value==True:
@@ -194,7 +194,7 @@ def running_stardist(nb_runnings, parameters):
         if parameters[0][i].selected==None:
             sys.exit("Running #"+str(i+1)+": You need to select an input directory for images to be processed")
         if parameters[1][i].selected==None:
-            sys.exit("Running #"+str(i+1)+": You need to select a trained classifier to run your images")
+            sys.exit("Running #"+str(i+1)+": You need to select a trained model to run your images")
         if parameters[2][i].selected==None:
             sys.exit("Running #"+str(i+1)+": You need to select an output directory for processed images")
 
@@ -526,146 +526,6 @@ def original_augmenter(x, y):
     x = x + sig*np.random.normal(0,1,x.shape)
     return x, y
 
-def GenerateRandomImgaugAugmentation(
-        pAugmentationLevel=5,           # number of augmentations
-        pEnableResizing=False,          # enable scaling
-        pScaleFactor=0.5,              # maximum scale factor
-        pEnableCropping=False,           # enable cropping
-        pCropFactor=0.25,               # maximum crop out size (minimum new size is 1.0-pCropFactor)
-        pEnableFlipping1=True,          # enable x flipping
-        pEnableFlipping2=True,          # enable y flipping
-        pEnableRotation90=True,           # enable rotation
-        pEnableRotation=False,           # enable rotation
-        pMaxRotationDegree=15,             # maximum rotation degree
-        pEnableShearX=False,             # enable x shear
-        pEnableShearY=False,             # enable y shear
-        pMaxShearDegree=15,             # maximum shear degree
-        pEnableBlur=True,               # enable gaussian blur
-        pBlurSigma=.5,                  # maximum sigma for gaussian blur
-        pEnableDropOut=True,
-        pMaxDropoutPercentage=0.01,
-        pEnableSharpness=False,          # enable sharpness
-        pSharpnessFactor=0.0001,           # maximum additional sharpness
-        pEnableEmboss=False,             # enable emboss
-        pEmbossFactor=0.0001,              # maximum emboss
-        pEnableBrightness=False,         # enable brightness
-        pBrightnessFactor=0.000001,         # maximum +- brightness
-        pEnableRandomNoise=True,        # enable random noise
-        pMaxRandomNoise=0.01,           # maximum random noise strength
-        pEnableInvert=False,             # enables color invert
-        pEnableContrast=True,           # enable contrast change
-        pContrastFactor=0.01,            # maximum +- contrast
-):
-    
-    augmentationMap = []
-    augmentationMapOutput = []
-
-
-    if pEnableFlipping1:
-        aug = iaa.Fliplr()
-        augmentationMap.append(aug)
-        
-    if pEnableFlipping2:
-        aug = iaa.Flipud()
-        augmentationMap.append(aug)
-
-    if pEnableRotation90:
-        randomNumber = random.Random().randint(1,3)
-        aug = iaa.Rot90(randomNumber)
-        augmentationMap.append(aug)
-
-    if pEnableRotation:
-        if random.Random().randint(0, 1)==1:
-            randomRotation = random.Random().random()*pMaxRotationDegree
-        else:
-            randomRotation = -random.Random().random()*pMaxRotationDegree
-        aug = iaa.Rotate(randomRotation)
-        augmentationMap.append(aug)
-
-    if pEnableShearX:
-        if random.Random().randint(0, 1)==1:
-            randomShearingX = random.Random().random()*pMaxShearDegree
-        else:
-            randomShearingX = -random.Random().random()*pMaxShearDegree
-        aug = iaa.ShearX(randomShearingX)
-        augmentationMap.append(aug)
-
-    if pEnableShearY:
-        if random.Random().randint(0, 1)==1:
-            randomShearingY = random.Random().random()*pMaxShearDegree
-        else:
-            randomShearingY = -random.Random().random()*pMaxShearDegree
-        aug = iaa.ShearY(randomShearingY)
-        augmentationMap.append(aug)
-
-    if pEnableDropOut:
-        randomDropOut = random.Random().random()*pMaxDropoutPercentage
-        aug = iaa.Dropout(p=randomDropOut, per_channel=False)
-        augmentationMap.append(aug)
-
-    if pEnableBlur:
-        randomBlur = random.Random().random()*pBlurSigma
-        aug = iaa.GaussianBlur(randomBlur)
-        augmentationMap.append(aug)
-
-    if pEnableSharpness:
-        randomSharpness = random.Random().random()*pSharpnessFactor
-        aug = iaa.Sharpen(randomSharpness)
-        augmentationMap.append(aug)
-
-    if pEnableEmboss:
-        randomEmboss = random.Random().random()*pEmbossFactor
-        aug = iaa.Emboss(randomEmboss)
-        augmentationMap.append(aug)
-
-    if pEnableBrightness:
-        if random.Random().randint(0, 1)==1:
-            randomBrightness = 1 - random.Random().random()*pBrightnessFactor
-        else:
-            randomBrightness = 1 + random.Random().random()*pBrightnessFactor
-        aug = iaa.Add(randomBrightness)
-        augmentationMap.append(aug)
-
-    if pEnableRandomNoise:
-        if random.Random().randint(0, 1)==1:
-            randomNoise = 1 - random.Random().random()*pMaxRandomNoise
-        else:
-            randomNoise = 1 + random.Random().random()*pMaxRandomNoise
-        aug = iaa.MultiplyElementwise(randomNoise,  per_channel=True)
-        augmentationMap.append(aug)
-        
-    if pEnableInvert:
-        aug = iaa.Invert(1)
-        augmentationMap.append(aug)
-
-    if pEnableContrast:
-        if random.Random().randint(0, 1)==1:
-            randomContrast = 1 - random.Random().random()*pContrastFactor
-        else:
-            randomContrast = 1 + random.Random().random()*pContrastFactor
-        aug = iaa.contrast.LinearContrast(randomContrast)
-        augmentationMap.append(aug)
-
-    arr = np.arange(len(augmentationMap))
-    np.random.shuffle(arr)
-    for i in range(pAugmentationLevel):
-        augmentationMapOutput.append(augmentationMap[arr[i]])
-    
-        
-    return iaa.Sequential(augmentationMapOutput)
-
-def augmenter(x,y):
-    segmap = SegmentationMapsOnImage(y, shape=x.shape)
-    augmentationMap = GenerateRandomImgaugAugmentation(
-                    pAugmentationLevel=5, pEnableResizing=True, pScaleFactor=0.5, pEnableCropping=False, pCropFactor=0.25,
-                    pEnableFlipping1=True, pEnableFlipping2=True, pEnableRotation90=True, pEnableRotation=True, pMaxRotationDegree=15,
-                    pEnableShearX=False, pEnableShearY=False, pMaxShearDegree=45, pEnableDropOut=True, pMaxDropoutPercentage=.1,
-                    pEnableBlur=True, pBlurSigma=.5, pEnableSharpness=False, pSharpnessFactor=.1, pEnableEmboss=False, pEmbossFactor=.1,
-                    pEnableBrightness=True, pBrightnessFactor=.1, pEnableRandomNoise=True, pMaxRandomNoise=.1,
-                    pEnableInvert=False, pEnableContrast=True, pContrastFactor=.1)
-    x_aug, segmap = augmentationMap(image=x, segmentation_maps=segmap)
-    y_aug = segmap.get_arr()
-    return x_aug, y_aug
 
 
 """
@@ -674,7 +534,7 @@ Training convnets
     
 def train_model_sample_Stardist(dataset_training = None,  dataset_validation = None,
                                 model_name = "model", n_channels = 1, batch_size = 5, n_epoch = 100, 
-                                output_dir = "./trained_classifiers/", learning_rate = 1e-3, 
+                                output_dir = "./models/", learning_rate = 1e-3, 
                                 data_augmentation = True, train_to_val_ratio = 0.2):
 
     gpus = tf.config.experimental.list_physical_devices('GPU')

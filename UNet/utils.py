@@ -89,7 +89,7 @@ def training_parameters_interface(nb_trainings):
         validation_dir[i] = FileChooser('./datasets')
         display(validation_dir[i])
         print('\x1b[1m'+"Output directory")
-        output_dir[i] = FileChooser('./trainedClassifiers')
+        output_dir[i] = FileChooser('./models')
         display(output_dir[i])
 
         label_layout = Layout(width='200px',height='30px')
@@ -166,8 +166,8 @@ def running_parameters_interface(nb_trainings):
         print('\x1b[1m'+"Input directory")
         input_dir[i] = FileChooser('./datasets')
         display(input_dir[i])
-        print('\x1b[1m'+"Input classifier")
-        input_classifier[i] = FileChooser('./trainedClassifiers')
+        print('\x1b[1m'+"Input model")
+        input_classifier[i] = FileChooser('./models')
         display(input_classifier[i])
         print('\x1b[1m'+"Output directory")
         output_dir[i] = FileChooser('./datasets')
@@ -215,7 +215,7 @@ def training(nb_trainings, parameters):
         if parameters[0][i].selected==None:
             sys.exit("Training #"+str(i+1)+": You need to select an input directory for training")
         if parameters[2][i].selected==None:
-            sys.exit("Training #"+str(i+1)+": You need to select an output directory for the trained classifier")
+            sys.exit("Training #"+str(i+1)+": You need to select an output directory for the trained model")
     
 
         model = unet(parameters[5][i].children[1].value, parameters[6][i].children[1].value, parameters[7][i].children[1].value, parameters[4][i].children[1].value)
@@ -229,7 +229,7 @@ def running(nb_runnings, parameters):
         if parameters[0][i].selected==None:
             sys.exit("Running #"+str(i+1)+": You need to select an input directory for images to be processed")
         if parameters[1][i].selected==None:
-            sys.exit("Running #"+str(i+1)+": You need to select a trained classifier to run your images")
+            sys.exit("Running #"+str(i+1)+": You need to select a trained model to process your images")
         if parameters[2][i].selected==None:
             sys.exit("Running #"+str(i+1)+": You need to select an output directory for processed images")
 
@@ -763,14 +763,14 @@ def weighted_crossentropy(class_weights):
 def train_model_sample(model = None, dataset_training = None,  dataset_validation = None,
                        model_name = "model", batch_size = 5, n_epoch = 100, 
                        imaging_field_x = 256, imaging_field_y = 256, 
-                       output_dir = "./trained_classifiers/", saved_model = True,
+                       output_dir = "./models/", saved_model = True,
                        learning_rate = 1e-3, nb_augmentations = 0,
                        train_to_val_ratio = 0.2):
 
     if dataset_training is None:
         sys.exit("The input training dataset needs to be defined")
     if output_dir is None:
-        sys.exit("The output directory for trained classifier needs to be defined")
+        sys.exit("The output directory for trained model needs to be defined")
    
     os.makedirs(name=output_dir, exist_ok=True)
     file_name_save = os.path.join(output_dir, model_name + ".h5")

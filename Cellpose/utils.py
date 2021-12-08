@@ -123,7 +123,7 @@ def running_parameters_cellpose_interface(nb_trainings):
         print('\x1b[1m'+"Input directory")
         input_dir[i] = FileChooser('./datasets')
         display(input_dir[i])
-        print('\x1b[1m'+"Input classifier")
+        print('\x1b[1m'+"Input model")
         input_model[i] = FileChooser('./models')
         display(input_model[i])
         print('\x1b[1m'+"Output directory")

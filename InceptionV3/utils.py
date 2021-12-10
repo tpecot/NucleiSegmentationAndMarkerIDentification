@@ -82,7 +82,7 @@ def data_preprocessing_interface(nb_trainings):
         output_dir[i] = FileChooser('./trainingDataNpz')
         display(output_dir[i])
 
-        label_layout = Layout(width='200px',height='30px')
+        label_layout = Layout(width='230px',height='30px')
 
         nb_classes[i] = HBox([Label('Number of classes:', layout=label_layout), widgets.IntText(
             value=3, description='', disabled=False)])
@@ -118,6 +118,7 @@ def training_parameters_interface(nb_trainings):
     imaging_field_y = np.zeros([nb_trainings], HBox)
     learning_rate = np.zeros([nb_trainings], HBox)
     nb_epochs = np.zeros([nb_trainings], HBox)
+    augmentation = np.zeros([nb_trainings], HBox)
     batch_size = np.zeros([nb_trainings], HBox)
     
     parameters = []
@@ -171,6 +172,109 @@ def training_parameters_interface(nb_trainings):
     parameters.append(imaging_field_y)
     parameters.append(learning_rate)
     parameters.append(nb_epochs)
+    parameters.append(augmentation)
+    parameters.append(batch_size)
+    
+    return parameters  
+
+def transfer_learning_parameters_interface(nb_trainings):
+    training_dir = np.zeros([nb_trainings], FileChooser)
+    output_dir = np.zeros([nb_trainings], FileChooser)
+    pretrained_model = np.zeros([nb_trainings], FileChooser)
+    nb_classes_pretrained_model = np.zeros([nb_trainings], FileChooser)
+    last_layer_training = np.zeros([nb_trainings], HBox)
+    nb_epochs_last_layer = np.zeros([nb_trainings], HBox)
+    learning_rate_last_layer = np.zeros([nb_trainings], HBox)
+    all_network_training = np.zeros([nb_trainings], HBox)
+    nb_epochs_all = np.zeros([nb_trainings], HBox)
+    learning_rate_all = np.zeros([nb_trainings], HBox)
+    nb_channels = np.zeros([nb_trainings], HBox)
+    nb_classes = np.zeros([nb_trainings], HBox)
+    imaging_field_x = np.zeros([nb_trainings], HBox)
+    imaging_field_y = np.zeros([nb_trainings], HBox)
+    augmentation = np.zeros([nb_trainings], HBox)
+    batch_size = np.zeros([nb_trainings], HBox)
+    
+    parameters = []
+    for i in range(nb_trainings):
+        print('\x1b[1m'+"Training dataset")
+        training_dir[i] = FileChooser('./trainingDataNPZ')
+        display(training_dir[i])
+        print('\x1b[1m'+"Output directory")
+        output_dir[i] = FileChooser('./models')
+        display(output_dir[i])
+        print('\x1b[1m'+"Pretrained model")
+        pretrained_model[i] = FileChooser('./models')
+        display(pretrained_model[i])
+
+        label_layout = Layout(width='250px',height='30px')
+
+        nb_classes_pretrained_model[i] = HBox([Label('Number of classes in the pretrained model:', layout=label_layout), widgets.IntText(
+            value=3, description='',disabled=False)])
+        display(nb_classes_pretrained_model[i])
+
+        last_layer_training[i] = HBox([Label('Training last layer only first:', layout=label_layout), widgets.Checkbox(
+            value=True, description='',disabled=False)])
+        display(last_layer_training[i])
+
+        nb_epochs_last_layer[i] = HBox([Label('Number of epochs for last_layer training:', layout=label_layout), widgets.IntText(
+            value=1, description='', disabled=False)])
+        display(nb_epochs_last_layer[i])
+
+        learning_rate_last_layer[i] = HBox([Label('Learning rate for last_layer training:', layout=label_layout), widgets.FloatText(
+            value=0.05, description='', disabled=False)])
+        display(learning_rate_last_layer[i])
+
+        all_network_training[i] = HBox([Label('Training all network:', layout=label_layout), widgets.Checkbox(
+            value=True, description='',disabled=False)])
+        display(all_network_training[i])
+
+        nb_epochs_all[i] = HBox([Label('Number of epochs for all network training:', layout=label_layout), widgets.IntText(
+            value=5, description='', disabled=False)])
+        display(nb_epochs_all[i])
+
+        learning_rate_all[i] = HBox([Label('Learning rate for all network training:', layout=label_layout), widgets.FloatText(
+            value=0.01, description='', disabled=False)])
+        display(learning_rate_all[i])
+
+        nb_channels[i] = HBox([Label('Number of channels:', layout=label_layout), widgets.IntText(
+            value=1, description='', disabled=False)])
+        display(nb_channels[i])
+
+        nb_classes[i] = HBox([Label('Number of classes:', layout=label_layout), widgets.IntText(
+            value=3, description='', disabled=False)])
+        display(nb_classes[i])
+
+        imaging_field_x[i] = HBox([Label('Imaging field in x:', layout=label_layout), widgets.IntText(
+            value=65, description='', disabled=False)])
+        display(imaging_field_x[i])
+
+        imaging_field_y[i] = HBox([Label('Imaging field in y:', layout=label_layout), widgets.IntText(
+            value=65, description='', disabled=False)])
+        display(imaging_field_y[i])
+
+        augmentation[i] = HBox([Label('Augmentation:', layout=label_layout), widgets.Checkbox(
+            value=True, description='', disabled=False)])
+        display(augmentation[i])
+
+        batch_size[i] = HBox([Label('Batch size:', layout=label_layout), widgets.IntText(
+            value=32, description='', disabled=False)])
+        display(batch_size[i])
+
+    parameters.append(training_dir)
+    parameters.append(output_dir)
+    parameters.append(pretrained_model)
+    parameters.append(nb_classes_pretrained_model)
+    parameters.append(last_layer_training)
+    parameters.append(nb_epochs_last_layer)
+    parameters.append(learning_rate_last_layer)
+    parameters.append(all_network_training)
+    parameters.append(nb_epochs_all)
+    parameters.append(learning_rate_all)
+    parameters.append(nb_channels)
+    parameters.append(nb_classes)
+    parameters.append(imaging_field_x)
+    parameters.append(imaging_field_y)
     parameters.append(augmentation)
     parameters.append(batch_size)
     
@@ -302,9 +406,7 @@ def getfiles(direc_name):
 
 def get_image(file_name):
     if '.tif' in file_name:
-        im = tiff.imread(file_name)
-        im = bytescale(im)
-        im = np.float32(im)
+        im = np.float32(tiff.imread(file_name))
     else:
         im = np.float32(imread(file_name))
     return im
@@ -343,7 +445,49 @@ def training(nb_trainings, parameters):
                            batch_size=parameters[9][i].children[1].value, n_epoch = parameters[7][i].children[1].value,
                            direc_save=parameters[1][i].selected, lr=parameters[6][i].children[1].value,
                            augmentation = parameters[8][i].children[1].value)
+        del model
         
+def transfer_learning(nb_trainings, parameters):
+    for i in range(nb_trainings):
+        if parameters[0][i].selected==None:
+            sys.exit("Training #"+str(i+1)+": You need to select an input directory for training")
+        if parameters[1][i].selected==None:
+            sys.exit("Training #"+str(i+1)+": You need to select an output directory for the trained model")
+        if parameters[2][i].selected==None:
+            sys.exit("Training #"+str(i+1)+": You need to select a pretrained model for transfer learning")
+
+        model = inceptionV3(n_channels=parameters[10][i].children[1].value, n_features=parameters[3][i].children[1].value, 
+                            dimx=parameters[12][i].children[1].value, dimy=parameters[13][i].children[1].value,
+                            weights_path=parameters[3][i].selected)
+
+        if parameters[8][i].children[1].value==True:
+            model_name = "InceptionV3_transfer_learning_"+str(parameters[9][i].children[1].value)+"ch_"+str(parameters[11][i].children[1].value)+"cl_"+str(parameters[12][i].children[1].value)+"_"+str(parameters[13][i].children[1].value)+"_last_layer_lr_"+str(parameters[6][i].children[1].value)+"_"+str(parameters[5][i].children[1].value)+"ep_all_network_lr_"+str(parameters[9][i].children[1].value)+"_"+str(parameters[8][i].children[1].value)+"ep_withDA"
+        else:
+            model_name = "InceptionV3_transfer_learning_"+str(parameters[9][i].children[1].value)+"ch_"+str(parameters[11][i].children[1].value)+"cl_"+str(parameters[12][i].children[1].value)+"_"+str(parameters[13][i].children[1].value)+"_last_layer_lr_"+str(parameters[6][i].children[1].value)+"_"+str(parameters[5][i].children[1].value)+"ep_all_network_lr_"+str(parameters[9][i].children[1].value)+"_"+str(parameters[8][i].children[1].value)+"ep_withoutDA"
+        
+        # remove last layer and replace with a layer corresponding to the actual number of classes
+        model.layers.pop()
+        lastLayer = Dense(parameters[11][i].children[1].value, activation='softmax', name='predictions')(model.layers[-1].output)
+        newModel = Model(model.layers[0].output,lastLayer)
+        del model
+        # training last layer
+        if parameters[4][i].children[1].value==True:
+            for layer in newModel.layers[:307]:
+                layer.trainable = False
+            train_model_sample(newModel, parameters[0][i].selected, model_name=model_name, 
+                               batch_size=parameters[15][i].children[1].value, n_epoch = parameters[5][i].children[1].value,
+                               direc_save=parameters[1][i].selected, lr=parameters[6][i].children[1].value,
+                               augmentation = parameters[14][i].children[1].value)
+        # training last layer
+        if parameters[6][i].children[1].value==True:
+            for layer in newModel.layers[:307]:
+                layer.trainable = True
+            train_model_sample(newModel, parameters[0][i].selected, model_name=model_name, 
+                               batch_size=parameters[15][i].children[1].value, n_epoch = parameters[8][i].children[1].value,
+                               direc_save=parameters[1][i].selected, lr=parameters[9][i].children[1].value,
+                               augmentation = parameters[14][i].children[1].value)
+        del newModel
+
 def running(nb_runnings, parameters):
     for i in range(nb_runnings):
         if parameters[0][i].selected==None:
@@ -353,9 +497,11 @@ def running(nb_runnings, parameters):
         if parameters[2][i].selected==None:
             sys.exit("Running #"+str(i+1)+": You need to select an output directory for processed images")
 
+        print("n_features: ", parameters[5][i].children[1].value, "n_channels: ", parameters[4][i].children[1].value, "dimx: ", parameters[6][i].children[1].value, "dimy: ", parameters[7][i].children[1].value, "weights_path: ", parameters[1][i].selected)
         model = inceptionV3(n_features=parameters[5][i].children[1].value, n_channels=parameters[4][i].children[1].value,
                             dimx=parameters[6][i].children[1].value, dimy=parameters[7][i].children[1].value, 
                             weights_path=parameters[1][i].selected)
+        print("data_location: ", parameters[0][i].selected, "output_location: ", parameters[2][i].selected, "bs: ", parameters[8][i].children[1].value, "mask_names: ", parameters[3][i].children[1].value, "normalization: ", parameters[9][i].children[1].value)
         run_models_on_directory(parameters[0][i].selected, parameters[2][i].selected, model, bs=parameters[8][i].children[1].value, maxDim=800, mask_names=parameters[3][i].children[1].value, normalization=parameters[9][i].children[1].value)
         del model
         
@@ -779,14 +925,16 @@ def get_images_from_directory(data_location):
     img_temp = get_image(os.path.join(data_location, img_list_channels[0]))
     n_channels = len(img_list_channels)
     all_images = []
+    image_names = []
 
     for stack_iteration in range(len(img_list_channels)):
         all_channels = np.zeros((1, img_temp.shape[0],img_temp.shape[1], 1), dtype = 'float32')
         channel_img = get_image(os.path.join(data_location, img_list_channels[stack_iteration]))
         all_channels[0,:,:,0] = channel_img
         all_images += [all_channels]
+        image_names.append(os.path.splitext(os.path.basename(img_list_channels[stack_iteration]))[0])
 
-    return all_images
+    return all_images, image_names
 
 def get_images_from_directory_keyword(data_location, channel_names):
     img_list_channels = []
@@ -797,6 +945,7 @@ def get_images_from_directory_keyword(data_location, channel_names):
 
     n_channels = len(channel_names)
     all_images = []
+    image_names = []
 
     for stack_iteration in range(len(img_list_channels[0])):
         all_channels = np.zeros((1, img_temp.shape[0],img_temp.shape[1], n_channels), dtype = 'float32')
@@ -804,8 +953,9 @@ def get_images_from_directory_keyword(data_location, channel_names):
             channel_img = get_image(os.path.join(data_location, img_list_channels[j][stack_iteration]))
             all_channels[0,:,:,j] = channel_img
         all_images += [all_channels]
+        image_names.append(os.path.splitext(os.path.basename(img_list_channels[stack_iteration]))[0])
 
-    return all_images
+    return all_images, image_names
 
 def get_images_from_directory_keyword_inverse(data_location, channel_names):
     img_list_channels = []
@@ -816,6 +966,7 @@ def get_images_from_directory_keyword_inverse(data_location, channel_names):
 
     n_channels = len(channel_names)
     all_images = []
+    image_names = []
 
     for stack_iteration in range(len(img_list_channels[0])):
         all_channels = np.zeros((1, img_temp.shape[0],img_temp.shape[1], n_channels), dtype = 'float32')
@@ -823,13 +974,14 @@ def get_images_from_directory_keyword_inverse(data_location, channel_names):
             channel_img = get_image(os.path.join(data_location, img_list_channels[j][stack_iteration]))
             all_channels[0,:,:,j] = channel_img
         all_images += [all_channels]
+        image_names.append(os.path.splitext(os.path.basename(img_list_channels[stack_iteration]))[0])
 
-    return all_images
+    return all_images, image_names
 
 # central pixel based networks
-def run_model_pixByPix(img, model, win_x = 30, win_y = 30, std = False, split = True, process = True, bs=32, maxDim=800, normalization = 1):
+def run_model_pixByPix(img, model, win_x = 30, win_y = 30, std = False, split = True, process = True, bs=32, maxDim=800, normalization = "nuclei segmentation"):
 
-    if normalization == 1:
+    if normalization == "nuclei segmentation":
         for j in range(img.shape[-1]):
             img[0,:,:,j] = process_image(img[0,:,:,j], win_x, win_y)
     else:
@@ -848,14 +1000,9 @@ def run_model_pixByPix(img, model, win_x = 30, win_y = 30, std = False, split = 
     
     while x_minIterator<(image_size_x-win_x) and y_minIterator<(image_size_y-win_y):
         test_images = []
-        if normalization == 3:
-            for x in range(x_minIterator, x_maxIterator):
-                for y in range(y_minIterator, y_maxIterator):
-                    test_images.append(img[0,x-win_x:x+win_x,y-win_y:y+win_y,:])
-        else:
-            for x in range(x_minIterator, x_maxIterator):
-                for y in range(y_minIterator, y_maxIterator):
-                    test_images.append(img[0,x-win_x:x+win_x+1,y-win_y:y+win_y+1,:])
+        for x in range(x_minIterator, x_maxIterator):
+            for y in range(y_minIterator, y_maxIterator):
+                test_images.append(img[0,x-win_x:x+win_x+1,y-win_y:y+win_y+1,:])
                
         test_images = np.asarray(test_images)
         test_images = test_images.astype('float32')
@@ -949,9 +1096,9 @@ def run_model_on_directory_pixByPix(data_location, mask_names, output_location, 
     counter = 0
 
     if mask_names == 'None':
-        image_list = get_images_from_directory(data_location)
+        image_list, image_names = get_images_from_directory(data_location)
     else:
-        image_list = get_images_from_directory_inverse_keyword(data_location, mask_names)
+        image_list, image_names = get_images_from_directory_inverse_keyword(data_location, mask_names)
     processed_image_list = []
     
     if mask_names == "None":
@@ -961,24 +1108,20 @@ def run_model_on_directory_pixByPix(data_location, mask_names, output_location, 
             processed_image_list += [processed_image]
 
             # Save images
-            for feat in range(n_classes):
-                current_class = processed_image[:,:,feat]
-                cnnout_name = os.path.join(output_location, 'feature_' + str(feat) +"_frame_"+ str(counter) + '.tif')
-                tiff.imsave(cnnout_name,current_class)
+            cnnout_name = os.path.join(output_location, image_names[counter] + ".tif")
+            tiff.imsave(cnnout_name,processed_image)
             counter += 1
 
     else:
-        mask_list = get_images_from_directory_keyword(data_location, mask_names)
+        mask_list, image_names = get_images_from_directory_keyword(data_location, mask_names)
         for img in image_list:
             print("Processing image ",str(counter + 1)," of ",str(len(image_list)))
             processed_image = run_model_pixByPixOnMasks(img, mask_list[counter], model, win_x = win_x, win_y = win_y, bs=bs, maxDim=maxDim, normalization = normalization)
             processed_image_list += [processed_image]
 
             # Save images
-            for feat in range(n_classes):
-                current_class = processed_image[:,:,feat]
-                cnnout_name = os.path.join(output_location, 'feature_' + str(feat) +"_frame_"+ str(counter) + '.tif')
-                tiff.imsave(cnnout_name,current_class)
+            cnnout_name = os.path.join(output_location, image_names[counter] + ".tif")
+            tiff.imsave(cnnout_name,processed_image)
             counter += 1
     
     return processed_image_list
@@ -1001,6 +1144,31 @@ def run_models_on_directory(data_location, output_location, model, bs=32, maxDim
     cpt = 0
     model_output = []
     processed_image_list=run_model_on_directory_pixByPix(data_location, mask_names, output_location, model, win_x = imaging_field_x, win_y = imaging_field_y, bs=bs, maxDim=maxDim, normalization = normalization)
+    model_output += [np.stack(processed_image_list, axis = 0)]
+
+    return model_output
+
+def run_models_on_directory_previous(data_location, mask_names, output_location, model, bs=32, maxDim=800, normalization = 1):
+
+    # determine the number of channels and classes as well as the imaging field dimensions
+    input_shape = model.layers[0].output_shape
+    n_channels = input_shape[-1]
+    if normalization == 3:
+        imaging_field_x = int(input_shape[1]/2)
+        imaging_field_y = int(input_shape[2]/2)
+    else:
+        imaging_field_x = int((input_shape[1]-1)/2)
+        imaging_field_y = int((input_shape[2]-1)/2)
+    output_shape = model.layers[-1].output_shape
+    n_classes = output_shape[-1]
+
+    # determine the image size
+    image_size_x, image_size_y, nb_channels = get_image_sizes(data_location)
+
+    # process images
+    cpt = 0
+    model_output = []
+    processed_image_list= run_model_on_directory_pixByPix(data_location, mask_names, output_location, model, win_x = imaging_field_x, win_y = imaging_field_y, bs=bs, maxDim=maxDim, normalization = normalization)
     model_output += [np.stack(processed_image_list, axis = 0)]
 
     return model_output

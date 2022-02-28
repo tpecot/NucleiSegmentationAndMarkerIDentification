@@ -22,4 +22,4 @@ Video tutorials are available for: <br>
 
 # Citation
 Please cite our paper if you use our method: <br> 
-Thierry Pécot, Maria C. Cuitiño, Roger H. Johnson, Cynthia Timmers, Gustavo Leone (2021): [Deep learning tools and modeling to estimate temporal expression of cell cycle proteins from 2D still images](https://www.biorxiv.org/content/10.1101/2021.03.01.433386v1)
+Thierry Pécot, Maria C. Cuitiño, Roger H. Johnson, Cynthia Timmers, Gustavo Leone (2022): [Deep learning tools and modeling to estimate the temporal expression of cell cycle proteins from 2D still images](https://www.biorxiv.org/content/10.1101/2021.03.01.433386v4)
